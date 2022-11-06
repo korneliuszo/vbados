@@ -31,7 +31,12 @@
 #define USE_WHEEL 1
 /** Verbosely log events as they happen. */
 #define TRACE_EVENTS 0
+/** Verbosely trace scroll wheel code. */
+#define TRACE_WHEEL 0
+/** Number of lines to scroll per wheel event. */
+#define WHEEL_SCROLL_LINES 2
 
+/** Windows 3.x only supports 1-2 mouse buttons anyway. */
 #define MOUSE_NUM_BUTTONS 2
 
 /** The routine Windows gave us which we should use to report events. */
@@ -57,7 +62,9 @@ static struct {
 	HWND WINAPI (*WindowFromPoint)( POINT );
 	HWND WINAPI (*GetParent)( HWND );
 	int WINAPI  (*GetClassName)( HWND, LPSTR, int );
+	int WINAPI  (*GetWindowText)( HWND, LPSTR, int );
 	LONG WINAPI (*GetWindowLong)( HWND, int );
+	BOOL WINAPI (*IsWindowEnabled)( HWND );
 	BOOL WINAPI (*EnumChildWindows)( HWND, WNDENUMPROC, LPARAM );
 	BOOL WINAPI (*PostMessage)( HWND, UINT, WPARAM, LPARAM );
 } userapi;
@@ -77,31 +84,80 @@ static void send_event(unsigned short Status, short deltaX, short deltaY, short 
 
 #if USE_WHEEL
 typedef struct {
+	/** Input: whether to find vertical scrollbars. */
+	BOOL vertical;
+	/** Output: found scrollbar handle, or 0. */
 	HWND scrollbar;
 } FINDSCROLLBARDATA, FAR * LPFINDSCROLLBARDATA;
+
+#define ENUM_CHILD_WINDOW_CONTINUE TRUE
+#define ENUM_CHILD_WINDOW_STOP     FALSE
+
+#if TRACE_WHEEL
+static void print_window_name(HWND hWnd)
+{
+	char buffer[32];
+	if (userapi.GetWindowText(hWnd, buffer, sizeof(buffer)) > 0) {
+		dprintf("w16mouse: hWnd=0x%x name=%s\n", hWnd, buffer);
+	}
+}
+#endif
 
 static BOOL CALLBACK __loadds find_scrollbar(HWND hWnd, LPARAM lParam)
 {
 	LPFINDSCROLLBARDATA data = (LPFINDSCROLLBARDATA) lParam;
 	char buffer[16];
 
-	userapi.GetClassName(hWnd, &buffer, sizeof(buffer));
+#if TRACE_WHEEL
+	print_window_name(hWnd);
+#endif
 
-	if (_fstrcmp(buffer, "ScrollBar") == 0) {
-		data->scrollbar = hWnd;
-		return FALSE;
+	if (!userapi.IsWindowEnabled(hWnd)) {
+		return ENUM_CHILD_WINDOW_CONTINUE;
 	}
 
-	return TRUE;
+	if (userapi.GetClassName(hWnd, buffer, sizeof(buffer)) == 0) {
+		return ENUM_CHILD_WINDOW_CONTINUE;
+	}
+
+	if (_fstrcmp(buffer, "ScrollBar") == 0) {
+		LONG style = userapi.GetWindowLong(hWnd, GWL_STYLE);
+
+		if (data->vertical && (style & SBS_VERT)) {
+			data->scrollbar = hWnd;
+			return ENUM_CHILD_WINDOW_STOP;
+		} else if (!data->vertical && !(style & SBS_VERT)) {
+			data->scrollbar = hWnd;
+			return ENUM_CHILD_WINDOW_STOP;
+		}
+	}
+
+	return ENUM_CHILD_WINDOW_CONTINUE;
+}
+
+static void post_scroll_msg(HWND hWnd, BOOL vertical, int z, HWND hScrollBar)
+{
+	UINT msg = vertical ? WM_VSCROLL : WM_HSCROLL;
+	WPARAM wParam = z < 0 ? SB_LINEUP : SB_LINEDOWN;
+	LPARAM lParam = MAKELPARAM(0, hScrollBar);
+	UINT i, lines = (z < 0 ? -z : z) * WHEEL_SCROLL_LINES;
+
+#if TRACE_WHEEL
+	dprintf("w16mouse: sending scroll msg to hWnd=0x%x from=0x%x vert=%d lines=%u\n", hWnd, hScrollBar, vertical, lines);
+#endif
+
+	for (i = 0; i < lines; i++) {
+		userapi.PostMessage(hWnd, msg, wParam, lParam);
+	}
+	userapi.PostMessage(hWnd, msg, SB_ENDSCROLL, lParam);
 }
 
 static void send_wheel_movement(int8_t z)
 {
 	POINT point;
 	HWND hWnd;
-	WPARAM wParam;
 
-#if TRACE_EVENTS
+#if TRACE_WHEEL
 	dprintf("w16mouse: wheel=%d\n", z);
 #endif
 
@@ -111,40 +167,79 @@ static void send_wheel_movement(int8_t z)
 
 	userapi.GetCursorPos(&point);
 
+#if TRACE_WHEEL
+	dprintf("w16mouse: getcursorpos OK\n");
+#endif
+
 	hWnd = userapi.WindowFromPoint(point);
+
+#if TRACE_WHEEL
+	dprintf("w16mouse: initial hWnd=0x%x\n", hWnd);
+#endif
 
 	while (hWnd) {
 		LONG style = userapi.GetWindowLong(hWnd, GWL_STYLE);
 
+#if TRACE_WHEEL
+		print_window_name(hWnd);
+		dprintf("w16mouse: hWnd=0x%x style=0x%lx\n", hWnd, style);
+#endif
+
 		if (style & WS_VSCROLL) {
-			wParam = z < 0 ? SB_LINEUP : SB_LINEDOWN;
-			userapi.PostMessage(hWnd, WM_VSCROLL, wParam, 0);
+#if TRACE_WHEEL
+			dprintf("w16mouse: found WS_VSCROLL\n");
+#endif
+			post_scroll_msg(hWnd, TRUE, z, 0);
 			break;
 		} else if (style & WS_HSCROLL) {
-			wParam = z < 0 ? SB_LINELEFT : SB_LINERIGHT;
-			userapi.PostMessage(hWnd, WM_HSCROLL, wParam, 0);
+#if TRACE_WHEEL
+			dprintf("w16mouse: found WS_HSCROLL\n");
+#endif
+			post_scroll_msg(hWnd, FALSE, z, 0);
 			break;
 		} else {
-			FINDSCROLLBARDATA data = {0};
+			FINDSCROLLBARDATA data;
 
-			// Let's check if we can find a scroll bar in this window..
+			// Let's check if we can find a vertical scroll bar in this window..
+#if TRACE_WHEEL
+			dprintf("w16mouse: find vertical scrollbar...\n");
+#endif
+			data.vertical = TRUE;
+			data.scrollbar = 0;
 			userapi.EnumChildWindows(hWnd, find_scrollbar, (LONG) (LPVOID) &data);
 			if (data.scrollbar) {
-				// Assume vertical scrolling
-				wParam = z < 0 ? SB_LINEUP : SB_LINEDOWN;
-				userapi.PostMessage(hWnd, WM_VSCROLL, wParam, 0);
+				post_scroll_msg(hWnd, TRUE, z, data.scrollbar);
 				break;
 			}
 
+			// Try a horizontal scrollbar now
+#if TRACE_WHEEL
+			dprintf("w16mouse: find horizontal scrollbar...\n");
+#endif
+			data.vertical = FALSE;
+			data.scrollbar = 0;
+			userapi.EnumChildWindows(hWnd, find_scrollbar, (LONG) (LPVOID) &data);
+			if (data.scrollbar) {
+				post_scroll_msg(hWnd, FALSE, z, data.scrollbar);
+				break;
+			}
+
+			// Otherwise, try again on the parent window
 			if (style & WS_CHILD) {
-				// Otherwise try again with a parent window
+#if TRACE_WHEEL
+				dprintf("w16mouse: go into parent...\n");
+#endif
 				hWnd = userapi.GetParent(hWnd);
 			} else {
-				// This was already a topmost
+				// This was already a topmost window
 				break;
 			}
 		}
 	}
+
+#if TRACE_WHEEL
+	dprintf("w16mouse: wheel end\n");
+#endif
 }
 #endif /* USE_WHEEL */
 
@@ -199,6 +294,10 @@ static void FAR int33_mouse_callback(uint16_t events, uint16_t buttons, int16_t 
 
 	// Unused
 	(void) buttons;
+
+	if ((status & ~SF_ABSOLUTE) == 0) {
+		return; // Nothing to post
+	}
 
 #if TRACE_EVENTS
 	dprintf("w16mouse: post status=0x%x ", status);
@@ -271,7 +370,9 @@ VOID FAR PASCAL Enable(LPFN_MOUSEEVENT lpEventProc)
 			userapi.WindowFromPoint = (LPVOID) GetProcAddress(userapi.hUser, "WindowFromPoint");
 			userapi.GetParent = (LPVOID) GetProcAddress(userapi.hUser, "GetParent");
 			userapi.GetClassName = (LPVOID) GetProcAddress(userapi.hUser, "GetClassName");
+			userapi.GetWindowText = (LPVOID) GetProcAddress(userapi.hUser, "GetWindowText");
 			userapi.GetWindowLong = (LPVOID) GetProcAddress(userapi.hUser, "GetWindowLong");
+			userapi.IsWindowEnabled = (LPVOID) GetProcAddress(userapi.hUser, "IsWindowEnabled");
 			userapi.EnumChildWindows = (LPVOID) GetProcAddress(userapi.hUser, "EnumChildWindows");
 			userapi.PostMessage = (LPVOID) GetProcAddress(userapi.hUser, "PostMessage");
 		}
