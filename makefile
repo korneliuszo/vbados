@@ -2,26 +2,35 @@
 # Assuming you have sourced `owsetenv` beforehand.
 
 # Object files for vbmouse
-mousedosobjs = mousetsr.obj mousmain.obj kitten.obj vbox.obj
-mousew16objs = mousew16.obj
+mousedos_objs = mousetsr.obj mousmain.obj kitten.obj vbox.obj
+mousew16_objs = mousew16.obj
 
 # Object files for vbsf
-sfdosobjs = sftsr.obj sfmain.obj kitten.obj vbox.obj
+sfdos_objs = sftsr.obj sfmain.obj kitten.obj vbox.obj
 
-doscflags = -bt=dos -ms -6 -osi -w3 -wcd=202
+# Compiler arguments for DOS
+dos_cflags = -bt=dos -ms -6 -osi -w3 -wcd=202
 # -ms to use small memory model (though sometimes ss != ds...)
 # -osi to optimize for size, put intrinsics inline (to avoid runtime calls)
 # -w3 enables warnings
 # -wcd=202 disables the unreferenced function warning (e.g., for inline functions in headers)
-dostsrcflags = -DIN_TSR -zu -s -g=RES_GROUP -nd=RES -nt=RES_TEXT -nc=RES_CODE
+
+# Compiler arguments for DOS TSR files
+dostsr_cflags = $(dos_cflags) -DIN_TSR -zu -s -g=RES_GROUP -nd=RES -nt=RES_TEXT -nc=RES_CODE
 # -s to disable stack checks, since it inserts calls to the runtime from the TSR part
 # -zu since ss != ds on the TSR
 
-w16cflags = -bt=windows -bd -mc -zu -s -6 -osi -w3 -wcd=202
+# Compiler arguments for W16 files
+w16_cflags = -bt=windows -bd -mc -zu -s -6 -osi -w3 -wcd=202
 # -bd to build DLL
 # -mc to use compact memory model (far data pointers, ss != ds in a DLL)
 # -zu for DLL calling convention (ss != ds)
 # -s to disable stack checks, since the runtime uses MessageBox() to abort (which we can't call from mouse.drv)
+
+# Full compiler command lines
+compile_dos = *wcc -fo=$^@ $(dos_cflags) $[@
+compile_dostsr = *wcc -fo=$^@ $(dostsr_cflags) $[@
+compile_w16 = *wcc -fo=$^@ $(w16_cflags) $[@
 
 .BEFORE:
 	# We need DOS and Windows headers, not host platform's
@@ -30,38 +39,40 @@ w16cflags = -bt=windows -bd -mc -zu -s -6 -osi -w3 -wcd=202
 all: vbmouse.exe vbmouse.drv vbsf.exe .SYMBOLIC
 
 # DOS mouse driver
-vbmouse.exe: vbmouse.lnk $(mousedosobjs) 
-	*wlink @$[@ name $@ file { $(mousedosobjs) }
+vbmouse.exe: vbmouse.lnk $(mousedos_objs)
+	*wlink @$[@ name $@ file { $(mousedos_objs) }
 
 mousetsr.obj: mousetsr.c .AUTODEPEND
-	*wcc -fo=$^@ $(doscflags) $(dostsrcflags) $[@
+	$(compile_dostsr)
 
 mousmain.obj: mousmain.c .AUTODEPEND
-	*wcc -fo=$^@ $(doscflags) $[@
-
-vbox.obj: vbox.c .AUTODEPEND
-	*wcc -fo=$^@ $(doscflags) $[@
+	$(compile_dos)
 
 # Windows 3.x mouse driver
-vbmouse.drv: mousew16.lnk $(mousew16objs)
-	*wlink @$[@ name $@ file { $(mousew16objs) }
+vbmouse.drv: mousew16.lnk $(mousew16_objs)
+	*wlink @$[@ name $@ file { $(mousew16_objs) }
 
 mousew16.obj: mousew16.c .AUTODEPEND
-	*wcc -fo=$^@ $(w16cflags) $[@
+	$(compile_w16)
 
 # DOS shared folders
-vbsf.exe: vbsf.lnk $(sfdosobjs)
-	*wlink @$[@ name $@ file { $(sfdosobjs) }
-
-sfmain.obj: sfmain.c .AUTODEPEND
-	*wcc -fo=$^@ $(doscflags) $[@
-
-kitten.obj: kitten.c .AUTODEPEND
-	*wcc -fo=$^@ $(doscflags) $[@
+vbsf.exe: vbsf.lnk $(sfdos_objs)
+	*wlink @$[@ name $@ file { $(sfdos_objs) }
 
 sftsr.obj: sftsr.c .AUTODEPEND
-	*wcc -fo=$^@ $(doscflags) $(dostsrcflags) $[@
+	$(compile_dostsr)
 
+sfmain.obj: sfmain.c .AUTODEPEND
+	$(compile_dos)
+
+# Auxiliary object files
+vbox.obj: vbox.c .AUTODEPEND
+	$(compile_dos)
+
+kitten.obj: kitten.c .AUTODEPEND
+	$(compile_dos)
+
+# Other targets
 clean: .SYMBOLIC
 	rm -f vbmouse.exe vbmouse.drv vbsf.exe vbados.flp *.obj *.map
 
