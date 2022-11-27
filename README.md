@@ -21,7 +21,7 @@ The VB stands for "Very Basic" :)
 
 # Downloads
 
-The current release is _0.61_.
+The current release is _0.62_.
 You can get a recent build from the ready-to-go floppy disk image:
 
 [💾 VBADOS.FLP](https://depot.javispedro.com/vbox/vbados/vbados.flp)
@@ -40,7 +40,7 @@ For the source code, you can check out [this git repository](..).
 
 ## Version history
 
-* _0.61_: Localization support using [Kitten](http://wiki.freedos.org/wiki/index.php/Kitten); currently only Spanish is available (`set lang=es`).
+* _0.62_: Localization support using [Kitten](http://wiki.freedos.org/wiki/index.php/Kitten); currently only Spanish is available (`set lang=es`).
   Non-fully-uppercase but still 8.3 filenames are no longer "shortened" by default.
   Introduced per-mount options.
   Improved wheel compatibility under Windows 3.x; Word is now compatible with wheel scrolling.
