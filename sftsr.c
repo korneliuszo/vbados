@@ -1047,6 +1047,7 @@ static vboxerr find_next_from_vbox(unsigned openfile, char __far *path)
 
 	while (1) { // Loop until we have a valid file (or an error)
 		unsigned size = sizeof(shfldirinfo), resume = 0, count = 0;
+		uint32_t hash;
 		bool valid;
 
 		err = vbox_shfl_list(&data.vb, data.hgcm_client_id,
@@ -1088,11 +1089,14 @@ static vboxerr find_next_from_vbox(unsigned openfile, char __far *path)
 
 		// Now convert the filename
 
-		// Calculate hash using host file name
-
+		// Calculate hash now using host file name before any conversion
+		if (data.drives[drive].opt.generate_sfn) {
+			hash = lfn_name_hash(shfldirinfo.dirinfo.name.ach, shfldirinfo.dirinfo.name.u16Length,
+			                     data.drives[drive].opt.hash_chars);
+		}
 
 		if (data.drives[drive].opt.use_host_sfn && shfldirinfo.dirinfo.cucShortName != 0) {
-			// Use shortname directly provided by host OS
+			// Use shortname provided by host OS
 			valid = utf16_to_local( &data, &shfldirinfo.dirinfo.name.ach, &shfldirinfo.dirinfo.uszShortName, shfldirinfo.dirinfo.cucShortName);
  
 			if (!valid) {
@@ -1101,26 +1105,26 @@ static vboxerr find_next_from_vbox(unsigned openfile, char __far *path)
 				continue;
 			}
 			shfldirinfo.dirinfo.name.u16Length = shfldirinfo.dirinfo.cucShortName;
-			dprintf("  Host short filename: '%s'\n", shfldirinfo.dirinfo.name.ach);
+			dprintf("host short filename: '%s'\n", shfldirinfo.dirinfo.name.ach);
 		} else {
+			// Perform NLS conversion and uppercasing
 			valid = translate_filename_from_host(&shfldirinfo.dirinfo.name, data.drives[drive].opt.require_uppercase, true);
 		}
 
 		if (valid) {
 			// Does it fit into a 8.3 filename?
 			if (!copy_to_8_3_filename(found_file->filename, &shfldirinfo.dirinfo.name)) {
-				dputs(" detected long filename");
+				dputs("detected long filename");
 				valid = false;
 			}
 		} else {
-			dputs(" detected invalid characters in filename");
+			dputs("detected invalid characters in filename");
 		}
 
 		if (data.drives[drive].opt.generate_sfn && !valid) {
-			uint8_t hash_chars = data.drives[drive].opt.hash_chars;
-			uint32_t hash = lfn_name_hash(shfldirinfo.dirinfo.name.ach, shfldirinfo.dirinfo.name.u16Length, hash_chars);
-			dputs("mangling long filename");
-			mangle_to_8_3_filename(hash, hash_chars, found_file->filename, &shfldirinfo.dirinfo.name);
+			dputs("using mangled long filename");
+			mangle_to_8_3_filename(hash, data.drives[drive].opt.hash_chars,
+			                       found_file->filename, &shfldirinfo.dirinfo.name);
 			valid = true;
 		}
 
