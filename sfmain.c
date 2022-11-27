@@ -33,9 +33,8 @@
 #include "dostsr.h"
 #include "sftsr.h"
 #include "unicode.h"
-#include "lfn.h"
 
-nl_catd cat;
+static nl_catd cat;
 
 static char get_drive_letter(const char *path) {
 	if (!path || path[0] == '\0') return '\0';
@@ -387,6 +386,23 @@ static int get_nls(uint8_t __far * __far *file_upper_case, FCHAR __far * __far *
 	return 0;
 }
 
+/** Tries to find a file with `name` in the same path as the current exec.
+ *  @param buf MAX_PATH buffer to use
+ *  @returns true if file exists
+ */
+static bool search_cmd_path(const char *name, char *buf)
+{
+	char cmd_drive[_MAX_DRIVE];
+	char cmd_dir[_MAX_DIR];
+	unsigned int attr;
+
+	_splitpath(__argv[0], cmd_drive, cmd_dir, NULL, NULL);
+	_makepath(buf, cmd_drive, cmd_dir, name, NULL);
+
+	// Check if file exists
+	return (_dos_getfileattr(buf, &attr) == 0);
+}
+
 static void load_unicode_table(uint16_t far *unicode_table)
 {
 	union REGS r;
@@ -412,17 +428,20 @@ static void load_unicode_table(uint16_t far *unicode_table)
 
 	if (r.x.cflag) {
 		// Can't get codepage. Use ASCII only
-		//
 		fputs(_(2, 0, "Warning: Active code page not found"), stderr);
 		goto error;
 	}
 
 	sprintf(filename, r.x.bx > 999 ? "c%duni.tbl" : "cp%duni.tbl", r.x.bx);
 
-	_searchenv(filename, "PATH", fullpath);
-	if ( '\0' == fullpath[0] ) {
-		fprintf(stderr, _(2, 1, "Warning: Can't find Unicode table: %s"), filename);
-		goto error;
+	// Search in the same directory as the executable first
+	if (!search_cmd_path(filename, fullpath)) {
+		// Search in path if not found
+		_searchenv(filename, "PATH", fullpath);
+		if ('\0' == fullpath[0]) {
+			fprintf(stderr, _(2, 1, "Warning: Can't find Unicode table: %s"), filename);
+			goto error;
+		}
 	}
 
 	f = fopen(fullpath, "rb");

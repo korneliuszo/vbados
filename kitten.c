@@ -74,7 +74,7 @@ int mystrtoul (char *src, int base, int size);
 /* Globals */
 
 nl_catd _kitten_catalog = 0;	/* _kitten_catalog descriptor or 0 */
-char catfile[128];		/* full path to _kitten_catalog */
+char catfile[_MAX_PATH];	/* full path to _kitten_catalog */
 
 char getlbuf[8192];		/* read buffer for better speed  */
 char *getlp;			/* current point in buffer       */
@@ -175,6 +175,20 @@ kittengets (int setnum, int msgnum, char *message)
     return (catpoints[i].text);
 }
 
+/**
+ * Obtains path to current exec.
+ */
+static char * get_cmd_path(char *buf)
+{
+	char cmd_drive[_MAX_DRIVE];
+	char cmd_dir[_MAX_DIR];
+
+	_splitpath(__argv[0], cmd_drive, cmd_dir, NULL, NULL);
+	_makepath(buf, cmd_drive, cmd_dir, "", NULL);
+
+	return buf;
+}
+
 
 /**
  * Initialize kitten for program (name).
@@ -241,7 +255,19 @@ kittenopen (char *name)
   /* we copy the full LANG value or the part before "-" if "-" found */
   catlang[2] = '\0';
 
-  /* step through NLSPATH */
+
+  /* first try to find catalog file in the same path as exe */
+  get_cmd_path(catfile);
+
+  strcat (catfile, name);
+  strcat (catfile, ".");
+  strcat (catfile, catlang);
+  _kitten_catalog = catread (catfile);
+  if (_kitten_catalog)
+    return (_kitten_catalog);
+
+
+  /* otherwise step through NLSPATH  */
 
   nlsptr = getenv ("NLSPATH");
 
