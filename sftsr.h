@@ -41,12 +41,38 @@
 #define BYTES_PER_SECTOR         4096
 #define BYTES_PER_CLUSTER        (SECTORS_PER_CLUSTER * BYTES_PER_SECTOR)
 
+/** Parameters for LFN names with hash (i.e. XXXX~HHH.XXX). */
+#define DEF_HASH_CHARS 3
+#define MIN_HASH_CHARS 2
+#define MAX_HASH_CHARS 6
+
 /** Size of the VBox buffer. The maximum message length that may be sent.
- *  Enough to fit an HGCM connect call, which is actually larger than most other calls we use ( <= 7 args ).  */
+ *  Enough to fit an HGCM connect call, which is actually larger than the other calls we use ( <= 7 args ).  */
 #define VBOX_BUFFER_SIZE (200)
 
 #define INVALID_OPENFILE (-1)
 
+/** Options available for each mounted shared folder. */
+typedef struct {
+	/** Number of characters to use for the hash part of generated SFNs (between MIN_HASH_CHARS and MAX_HASH_CHARS). */
+	uint8_t hash_chars : 3;
+	/** Use short filenames provided by host. */
+	bool use_host_sfn : 1 ;
+	/** Generate (hash-based) short filenames. If false, files with LFN will not appear. */
+	bool generate_sfn : 1;
+	/** Generate hash SFNs for any filename with non-uppercase chars, even if otherwise fits in 8.3. */
+	bool require_uppercase : 1;
+} MOUNTOPTS;
+
+/** Struct representing a (potentially) mounted drive. */
+typedef struct {
+	/** VirtualBox "root" for this drive, or NIL if unmounted. */
+	uint32_t root;
+	/** Mount options. */
+	MOUNTOPTS opt;
+} MOUNTEDDRIVE;
+
+/** Struct representing a (potentially) open file. */
 typedef struct {
 	uint32_t root;
 	uint64_t handle;
@@ -72,18 +98,10 @@ typedef struct {
 	FCHAR __far *file_char;
 	/** Codepage to unicode lookup table. */
 	uint16_t unicode_table[128];
-	/** LFN support */
-	bool short_fnames;
-	uint8_t hash_chars;
 
 	// Current status
 	/** Array of all possible DOS drives. */
-	struct {
-		/** VirtualBox "root" for this drive, or NIL if unmounted. */
-		uint32_t root;
-		/** Host file system is case sensitive flag. */
-		bool case_insensitive;
-	} drives[NUM_DRIVES];
+	MOUNTEDDRIVE drives[NUM_DRIVES];
 
 	/** All currently open files. */
 	OPENFILE files[NUM_FILES];

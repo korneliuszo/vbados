@@ -50,6 +50,8 @@ static unsigned char nls_toupper( unsigned char c )
 	return ( c < 0x80 ? c : data.file_upper_case[c - 0x80] );
 }
 
+/** Convert str into uppercase as per current NLS rules.
+ *  @return true if str was already uppercase. */
 static inline bool nls_uppercase(SHFLSTRING *str)
 {
 	int i;

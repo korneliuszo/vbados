@@ -6,23 +6,24 @@
 # Spaces before text must be kept. Be sure that no spaces are
 # added to the end of the lines.
 #
-0.0:\nUso: 
-0.1:    VBSF <ACCIàN> <ARGS..>\n
-0.2:Acciones soportadas:
-0.3:    install            instala el controlador (por defecto)
-0.4:        low                instala en memoria convencional (UMB si no)
-0.5:        short              nombres cortos de archivos en anfitriones windows
-0.6:        hash <n>           n£mero de caracteres generados por hash tras la '~'
-0.7:                           para generar nombres de archivo v lidos en DOS
-0.8:                           (%d m¡n, %d m x, %d por defecto)\n
-0.9:    uninstall          desinstala el controlador de la memoria
-0.10:    list               lista carpetas compartidas disponibles
-0.11:    mount [/cs] <CARP> <X:>  monta una carpeta compartida en la unidad X:
-0.12:    umount <X:>        desmonta la carpeta compartida de la unidad X:
-0.13:    rescan             desmonta todo y recrea los automounts
-0.14:                             usar '/cs' si el anfitri¢n distingue may£s/min£s
+0.0:Uso:
+0.1:  VBSF <ACCIàN> <ARGS..> [<OPCIONES..>]
+0.2:Acciones y opciones soportadas:
+0.3:  install                 Instala el controlador (por defecto).
+0.4:    low                     Instala en memoria convencional (UMB si no).
+0.5:  uninstall               Desinstala el controlador de la memoria.
+0.6:  list                    Lista carpetas compartidas disponibles.
+0.7:  mount <CARP> <X:> ...   Monta una carpeta compartida en la unidad X:.
+0.8:    /hash <n>               N£mero de car cteres hash tras '~'
+0.9:                             en los nombres de archivo cortos generados.
+0.10:                             (entre %d y %d; por defecto %d; 0 desactiva)\n
+0.11:    /host                   Usa nombres cortos de anfitriones Windows.
+0.12:    /upper                  Require nombres de archivo en may£sculas.
+0.13:  remount <X:> ...        Cambia opciones de montado para unidad X:.
+0.14:  umount <X:>             Desmonta la carpeta compartida de la unidad X:.
+0.15:  rescan                  Desmonta todo y rehace los automontajes.
 1.0:Unidades montadas:\n
-1.1: %s en %c:\n
+1.1: %s en %c:  %s\n
 1.2:Carpetas compartidas disponibles:\n
 1.3:Carpeta compartida '%s' montada en la unidad %c:\n
 1.4:Unidad %c: desmontada\n

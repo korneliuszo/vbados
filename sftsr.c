@@ -234,12 +234,19 @@ static int my_strrchr(const char __far *str, char c)
 	return last;
 }
 
-static inline bool translate_filename_from_host(SHFLSTRING *str, bool case_insensitive, bool uppercase)
+/** Transform filename from host encoding to DOS local codepage
+ *  @param to_uppercase transform to uppercase filename
+ *  @param require_uppercase fail conversion if any char in source string is not in uppercase
+ *  @returns true if conversion was succesful
+ */
+static inline bool translate_filename_from_host(SHFLSTRING *str, bool require_uppercase, bool to_uppercase)
 {
 	bool valid = utf8_to_local(&data, str->ach, str->ach, &str->u16Length);
 
-	if (uppercase) {
-		valid = (nls_uppercase(str) || case_insensitive) && valid;
+	if (to_uppercase) {
+		if (!nls_uppercase(str) && require_uppercase) {
+			valid = false;
+		}
 	}
 
 	return valid;
@@ -257,7 +264,7 @@ static const char * get_basename(const char *path)
 
 /** Tries to do some very simple heuristics to convert DOS-style wildcards
  *  into win32-like (as expected by VirtualBox). */
-static void fix_wildcards(SHFLSTRING *str)
+static void fix_wildcards(SHFLSTRING *str, bool expand_tilde)
 {
 	unsigned i;
 
@@ -287,39 +294,30 @@ static void fix_wildcards(SHFLSTRING *str)
 		     (str->ach[i-1] == '*' || str->ach[i-1] == '?') ) {
 			str->ach[i] = '*';
 		}
-	}
 
-	// If there is a '~' in the pattern search, assume that this is a shortened
-	// file name. Nothing to do for windows short names, as they exist in the
-	// host, but for the hash ones, we have to replace the tilde and any following
-	// characters with an '*'
-	if (!data.short_fnames) {
-		for (i = 0; i < str->u16Length; i++) {
-			if ( str->ach[i] == '~') {
-				strcpy(&str->ach[i], "*");
-				str->u16Length = i + 1;
-				break;
-			}
+		// If there is a '~' in the pattern search, assume that this is a shortened
+		// file name. We have to replace the tilde and any following characters with an '*'.
+		if (expand_tilde && str->ach[i] == '~') {
+			strcpy(&str->ach[i], "*");
+			str->u16Length = i + 1;
+			break;
 		}
 	}
 }
 
-
-static void copy_drive_relative_filename(SHFLROOT root, SHFLSTRING *str, char __far *path)
+static void translate_filename_to_host(int drive, SHFLSTRING *str, char __far *path)
 {
-	// Assume X:.... path for now, i.e. drive_relative path starts at char 
-	
-	str->u16Length = get_true_host_name( root, &data, str->ach, path + 2, str->u16Size );
-	
+	// Assume X:.... path for now, i.e. drive_relative path starts at char 2
+	str->u16Length = get_true_host_name(&data, drive, str->ach, path + 2, str->u16Size);
 }
 
-static void copy_drive_relative_dirname(SHFLROOT root, SHFLSTRING *str, char __far *path)
+static void translate_dirname_to_host(int drive, SHFLSTRING *str, char __far *path)
 {
 	int last_sep = my_strrchr(path + 2, '\\');
 	if (last_sep >= 0) {
-		str->u16Length = get_true_host_name_n( root, &data, str->ach, path + 2, str->u16Size, last_sep == 0 ? 1 : last_sep );
+		str->u16Length = get_true_host_name_n(&data, drive, str->ach, path + 2, str->u16Size, last_sep == 0 ? 1 : last_sep);
 	} else {
-		str->u16Length = get_true_host_name( root, &data, str->ach, path + 2, str->u16Size );
+		str->u16Length = get_true_host_name(&data, drive, str->ach, path + 2, str->u16Size);
 	}
 }
 
@@ -513,7 +511,7 @@ static void handle_create_open_ex(union INTPACK __far *r)
 		return;
 	}
 
-	copy_drive_relative_filename(root, &shflstr.shflstr, path);
+	translate_filename_to_host(drive, &shflstr.shflstr, path);
 
 	memset(&parms.create, 0, sizeof(SHFLCREATEPARMS));
 	if (action & OPENEX_REPLACE_IF_EXISTS) {
@@ -857,7 +855,7 @@ static void handle_delete(union INTPACK __far *r)
 
 	dprintf("handle_delete %Fs\n", path);
 
-	copy_drive_relative_filename(root, &shflstr.shflstr, path);
+	translate_filename_to_host(drive, &shflstr.shflstr, path);
 
 	err = vbox_shfl_remove(&data.vb, data.hgcm_client_id, root,
 	                       &shflstr.shflstr, SHFL_REMOVE_FILE);
@@ -885,10 +883,10 @@ static void handle_rename(union INTPACK __far *r)
 		return;
 	}
 
-	copy_drive_relative_filename(root, &shflstr.shflstr, src);
+	translate_filename_to_host(srcdrive, &shflstr.shflstr, src);
 
 	// Reusing shfldirinfo buffer space here for our second filename
-	copy_drive_relative_filename(root, &shfldirinfo.dirinfo.name, dst);
+	translate_filename_to_host(dstdrive, &shfldirinfo.dirinfo.name, dst);
 
 	err = vbox_shfl_rename(&data.vb, data.hgcm_client_id, root,
 	                       &shflstr.shflstr, &shfldirinfo.dirinfo.name,
@@ -910,7 +908,7 @@ static void handle_getattr(union INTPACK __far *r)
 
 	dprintf("handle_getattr %Fs\n", path);
 
-	copy_drive_relative_filename(root, &shflstr.shflstr, path);
+	translate_filename_to_host(drive, &shflstr.shflstr, path);
 
 	memset(&parms.create, 0, sizeof(SHFLCREATEPARMS));
 	parms.create.CreateFlags = SHFL_CF_LOOKUP;
@@ -946,13 +944,14 @@ static void handle_setattr(union INTPACK __far *r)
 
 /** Opens directory corresponding to file in path (i.e. we use the dirname),
  *  filling corresponding openfile entry. */
-static vboxerr open_search_dir(unsigned openfile, SHFLROOT root, char __far *path)
+static vboxerr open_search_dir(unsigned openfile, int drive, char __far *path)
 {
+	SHFLROOT root = data.drives[drive].root;
 	vboxerr err;
 
 	dprintf("open_search_dir openfile=%u path=%Fs\n", openfile, path);
 
-	copy_drive_relative_dirname(root, &shflstr.shflstr, path);
+	translate_dirname_to_host(drive, &shflstr.shflstr, path);
 
 	memset(&parms.create, 0, sizeof(SHFLCREATEPARMS));
 	parms.create.CreateFlags = SHFL_CF_DIRECTORY
@@ -1018,9 +1017,7 @@ static vboxerr find_next_from_vbox(unsigned openfile, char __far *path)
 	DOSDIR __far *found_file = &data.dossda->found_file;
 	uint16_t search_mask;
 	vboxerr err;
-	uint32_t hash;
 	int drive;
-	bool case_insensitive;
 
 	// Always accept files with these attributes, even if mask says otherwise
 	search_mask = ~(sdb->search_attr | _A_ARCH | _A_RDONLY);
@@ -1029,12 +1026,10 @@ static vboxerr find_next_from_vbox(unsigned openfile, char __far *path)
 	// a correct absolute mask with the correct wildcards;
 	// this is what VirtualBox will use in future calls.
 	if (path) {
-		SHFLROOT root;
 		drive = drive_letter_to_index(path[0]);
-		root = data.drives[drive].root;
 
-		copy_drive_relative_filename(root, &shflstr.shflstr, path);
-		fix_wildcards(&shflstr.shflstr);
+		translate_filename_to_host(drive, &shflstr.shflstr, path);
+		fix_wildcards(&shflstr.shflstr, data.drives[drive].opt.generate_sfn);
 
 		dprintf("fixed path=%s\n", shflstr.buf);
 
@@ -1049,7 +1044,6 @@ static vboxerr find_next_from_vbox(unsigned openfile, char __far *path)
 		shflstring_strcpy(&shflstr.shflstr, " ");
 	}
 
-	case_insensitive = data.drives[drive].case_insensitive;
 
 	while (1) { // Loop until we have a valid file (or an error)
 		unsigned size = sizeof(shfldirinfo), resume = 0, count = 0;
@@ -1095,9 +1089,10 @@ static vboxerr find_next_from_vbox(unsigned openfile, char __far *path)
 		// Now convert the filename
 
 		// Calculate hash using host file name
-		hash = lfn_name_hash( shfldirinfo.dirinfo.name.ach, shfldirinfo.dirinfo.name.u16Length );
 
-		if (data.short_fnames && shfldirinfo.dirinfo.cucShortName != 0) {
+
+		if (data.drives[drive].opt.use_host_sfn && shfldirinfo.dirinfo.cucShortName != 0) {
+			// Use shortname directly provided by host OS
 			valid = utf16_to_local( &data, &shfldirinfo.dirinfo.name.ach, &shfldirinfo.dirinfo.uszShortName, shfldirinfo.dirinfo.cucShortName);
  
 			if (!valid) {
@@ -1108,19 +1103,33 @@ static vboxerr find_next_from_vbox(unsigned openfile, char __far *path)
 			shfldirinfo.dirinfo.name.u16Length = shfldirinfo.dirinfo.cucShortName;
 			dprintf("  Host short filename: '%s'\n", shfldirinfo.dirinfo.name.ach);
 		} else {
-			valid = translate_filename_from_host(&shfldirinfo.dirinfo.name, case_insensitive, true);
-		}
-		
-		if (valid) {
-			if (!copy_to_8_3_filename(found_file->filename, &shfldirinfo.dirinfo.name)) {
-				dputs("Mangling long filename");
-				mangle_to_8_3_filename(hash, found_file->filename, &shfldirinfo.dirinfo.name);
-			}
-		} else {
-			dputs("Mangling filename with illegal character(s)");
-			mangle_to_8_3_filename(hash, found_file->filename, &shfldirinfo.dirinfo.name);
+			valid = translate_filename_from_host(&shfldirinfo.dirinfo.name, data.drives[drive].opt.require_uppercase, true);
 		}
 
+		if (valid) {
+			// Does it fit into a 8.3 filename?
+			if (!copy_to_8_3_filename(found_file->filename, &shfldirinfo.dirinfo.name)) {
+				dputs(" detected long filename");
+				valid = false;
+			}
+		} else {
+			dputs(" detected invalid characters in filename");
+		}
+
+		if (data.drives[drive].opt.generate_sfn && !valid) {
+			uint8_t hash_chars = data.drives[drive].opt.hash_chars;
+			uint32_t hash = lfn_name_hash(shfldirinfo.dirinfo.name.ach, shfldirinfo.dirinfo.name.u16Length, hash_chars);
+			dputs("mangling long filename");
+			mangle_to_8_3_filename(hash, hash_chars, found_file->filename, &shfldirinfo.dirinfo.name);
+			valid = true;
+		}
+
+		if (!valid) {
+			dputs("hiding file with invalid filename");
+			continue;
+		}
+
+		// Compare short filename against DOS wildcard pattern
 		if (!matches_8_3_wildcard(found_file->filename, sdb->search_templ)) {
 			dputs("hiding file with unwanted filename");
 			continue;
@@ -1186,7 +1195,7 @@ static void handle_find_first(union INTPACK __far *r)
 		return;
 	}
 
-	err = open_search_dir(openfile, root, path);
+	err = open_search_dir(openfile, drive, path);
 	if (err) {
 		set_vbox_err(r, err);
 		return;
@@ -1268,7 +1277,7 @@ static void handle_chdir(union INTPACK __far *r)
 	dprintf("handle_chdir %Fs\n", path);
 
 	// Just have to check if the directory exists
-	copy_drive_relative_filename(root, &shflstr.shflstr, path);
+	translate_filename_to_host(drive, &shflstr.shflstr, path);
 
 	memset(&parms.create, 0, sizeof(SHFLCREATEPARMS));
 	parms.create.CreateFlags = SHFL_CF_LOOKUP;
@@ -1307,7 +1316,7 @@ static void handle_mkdir(union INTPACK __far *r)
 
 	dprintf("handle_mkdir %Fs\n", path);
 
-	copy_drive_relative_filename(root, &shflstr.shflstr, path);
+	translate_filename_to_host(drive, &shflstr.shflstr, path);
 
 	memset(&parms.create, 0, sizeof(SHFLCREATEPARMS));
 	parms.create.CreateFlags = SHFL_CF_DIRECTORY
@@ -1347,7 +1356,7 @@ static void handle_rmdir(union INTPACK __far *r)
 
 	dprintf("handle_rmdir %Fs\n", path);
 
-	copy_drive_relative_filename(root, &shflstr.shflstr, path);
+	translate_filename_to_host(drive, &shflstr.shflstr, path);
 
 	err = vbox_shfl_remove(&data.vb, data.hgcm_client_id, root,
 	                       &shflstr.shflstr, SHFL_REMOVE_DIR);

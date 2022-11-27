@@ -62,11 +62,31 @@ static char find_free_drive_letter() {
 	return 0;
 }
 
+static void list_mountopts(MOUNTOPTS __far *opts, char *s)
+{
+	s[0] = '\0';
+
+	if (opts->generate_sfn) {
+		if (opts->hash_chars != DEF_HASH_CHARS) {
+			s += sprintf(s, "/hash %u ", opts->hash_chars);
+		}
+	} else {
+		s += sprintf(s, "/nohash ");
+	}
+	if (opts->use_host_sfn) {
+		s += sprintf(s, "/host ");
+	}
+	if (opts->require_uppercase) {
+		s += sprintf(s, "/upper ");
+	}
+}
+
 static int list_folders(LPTSRDATA data)
 {
 	int32_t err;
 	SHFLMAPPING maps[SHFL_MAX_MAPPINGS];
 	SHFLSTRING_WITH_BUF(str, SHFL_MAX_LEN);
+	char optstr[32];
 	unsigned num_maps = sizeof(maps) / sizeof(SHFLMAPPING);
 	unsigned i;
 
@@ -85,7 +105,11 @@ static int list_folders(LPTSRDATA data)
 		}
 
 		(void)utf8_to_local(data, str.buf, str.buf, NULL);
-		printf(_(1, 1, " %s on %c:\n"), str.buf, drive_index_to_letter(i));
+
+		list_mountopts(&data->drives[i].opt, optstr);
+
+
+		printf(_(1, 1, " %s on %c:  %s\n"), str.buf, drive_index_to_letter(i), optstr);
 	}
 
 	err = vbox_shfl_query_mappings(&data->vb, data->hgcm_client_id, 0, &num_maps, maps);
@@ -144,7 +168,7 @@ static void close_openfiles(LPTSRDATA data, int drive)
 	}
 }
 
-static int mount_shfl(LPTSRDATA data, int drive, const char *folder, bool ci)
+static int mount_shfl(LPTSRDATA data, int drive, const char *folder)
 {
 	int32_t err;
 	SHFLSTRING_WITH_BUF(str, SHFL_MAX_LEN);
@@ -160,7 +184,6 @@ static int mount_shfl(LPTSRDATA data, int drive, const char *folder, bool ci)
 	}
 
 	data->drives[drive].root = root;
-	data->drives[drive].case_insensitive = ci;
 
 	return 0;
 }
@@ -183,19 +206,46 @@ static int unmount_shfl(LPTSRDATA data, int drive)
 	return 0;
 }
 
-static int mount(LPTSRDATA data, char *folder, char drive_letter, bool ci)
+static void set_mountopts_defaults(MOUNTOPTS *opts)
+{
+	opts->generate_sfn = true;
+	opts->require_uppercase = false;
+	opts->use_host_sfn = false;
+	opts->hash_chars = DEF_HASH_CHARS;
+}
+
+static bool is_valid_drive(DOSLOL __far *lol, char drive_letter, int drive)
+{
+	if (drive < 0) {
+		fprintf(stderr, _(3, 6, "Invalid drive %c:\n"), drive_letter);
+		return false;
+	}
+
+	if (drive >= lol->last_drive || drive >= NUM_DRIVES) {
+		fprintf(stderr, _(3, 7, "Drive %c: is after LASTDRIVE\n"), drive_letter);
+		return false;
+	}
+
+	return true;
+}
+
+static bool is_mounted_drive(LPTSRDATA data, char drive_letter, int drive)
+{
+	if (data->drives[drive].root == SHFL_ROOT_NIL) {
+		fprintf(stderr, _(3, 11, "Drive %c not mounted\n"), drive_letter);
+		return false;
+	}
+
+	return true;
+}
+
+static int mount(LPTSRDATA data, char *folder, char drive_letter, MOUNTOPTS *opts)
 {
 	int drive = drive_letter_to_index(drive_letter);
 	DOSLOL __far *lol = dos_get_list_of_lists();
 	DOSCDS __far *cds;
 
-	if (drive < 0) {
-		fprintf(stderr, _(3, 6, "Invalid drive %c:\n"), drive_letter);
-		return EXIT_FAILURE;
-	}
-
-	if (drive >= lol->last_drive || drive >= NUM_DRIVES) {
-		fprintf(stderr, _(3, 7, "Drive %c: is after LASTDRIVE\n"), drive_letter);
+	if (!is_valid_drive(lol, drive_letter, drive)) {
 		return EXIT_FAILURE;
 	}
 
@@ -211,11 +261,12 @@ static int mount(LPTSRDATA data, char *folder, char drive_letter, bool ci)
 		return EXIT_FAILURE;
 	}
 
-	if (mount_shfl(data, drive, folder, ci) != 0) {
+	if (mount_shfl(data, drive, folder) != 0) {
 		fprintf(stderr, _(3, 10, "Cannot mount drive %c:\n"), drive_letter);
 		return EXIT_FAILURE;
 	}
 
+	data->drives[drive].opt = *opts;
 
 	// Ok, set the network flag.
 	// By setting the physical flag, we also let DOS know the drive is present
@@ -233,20 +284,8 @@ static int unmount(LPTSRDATA data, char drive_letter)
 	DOSLOL __far *lol = dos_get_list_of_lists();
 	DOSCDS __far *cds;
 
-	if (drive < 0) {
-		fprintf(stderr, _(3, 6, "Invalid drive %c:\n"), drive_letter);
-		return EXIT_FAILURE;
-	}
-
-	if (drive >= lol->last_drive || drive >= NUM_DRIVES) {
-		fprintf(stderr, _(3, 7, "Drive %c: is after LASTDRIVE\n"), drive_letter);
-		return EXIT_FAILURE;
-	}
-
-	cds = &lol->cds[drive];
-
-	if (data->drives[drive].root == SHFL_ROOT_NIL) {
-		fprintf(stderr, _(3, 11, "Drive %c not mounted\n"), drive_letter);
+	if (!is_valid_drive(lol, drive_letter, drive)
+	        || !is_mounted_drive(data, drive_letter, drive)) {
 		return EXIT_FAILURE;
 	}
 
@@ -255,11 +294,42 @@ static int unmount(LPTSRDATA data, char drive_letter)
 	}
 
 	// Hide the drive from DOS
+	cds = &lol->cds[drive];
 	cds->flags = 0;
 
 	// TODO Clear current directory ?
 
 	printf(_(1, 4, "Drive %c: unmounted\n"), drive_letter);
+
+	return EXIT_SUCCESS;
+}
+
+static int get_mountopts(LPTSRDATA data, char drive_letter, MOUNTOPTS *opts)
+{
+	int drive = drive_letter_to_index(drive_letter);
+	DOSLOL __far *lol = dos_get_list_of_lists();
+
+	if (!is_valid_drive(lol, drive_letter, drive)
+	        || !is_mounted_drive(data, drive_letter, drive)) {
+		return EXIT_FAILURE;
+	}
+
+	*opts = data->drives[drive].opt;
+
+	return EXIT_SUCCESS;
+}
+
+static int set_mountopts(LPTSRDATA data, char drive_letter, MOUNTOPTS *opts)
+{
+	int drive = drive_letter_to_index(drive_letter);
+	DOSLOL __far *lol = dos_get_list_of_lists();
+
+	if (!is_valid_drive(lol, drive_letter, drive)
+	        || !is_mounted_drive(data, drive_letter, drive)) {
+		return EXIT_FAILURE;
+	}
+
+	data->drives[drive].opt = *opts;
 
 	return EXIT_SUCCESS;
 }
@@ -270,9 +340,12 @@ static int automount(LPTSRDATA data)
 	SHFLMAPPING maps[SHFL_MAX_MAPPINGS];
 	SHFLSTRING_WITH_BUF(name, SHFL_MAX_LEN);
 	SHFLSTRING_WITH_BUF(mountPoint, SHFL_MAX_LEN);
+	MOUNTOPTS opts;
 	unsigned num_maps = sizeof(maps) / sizeof(SHFLMAPPING);
 	unsigned flags, version;
 	unsigned i;
+
+	set_mountopts_defaults(&opts);
 
 	err = vbox_shfl_query_mappings(&data->vb, data->hgcm_client_id,
 	                               SHFL_MF_AUTOMOUNT, &num_maps, maps);
@@ -307,7 +380,7 @@ static int automount(LPTSRDATA data)
 			drive_letter = find_free_drive_letter();
 		}
 
-		mount(data, name.buf, drive_letter, true);
+		mount(data, name.buf, drive_letter, &opts);
 	}
 
 	return 0;
@@ -479,7 +552,7 @@ error:
 
 }
 
-static int configure_driver(LPTSRDATA data, bool short_fnames, uint8_t hash_chars)
+static int configure_driver(LPTSRDATA data)
 {
 	unsigned i;
 	int32_t err;
@@ -514,12 +587,6 @@ static int configure_driver(LPTSRDATA data, bool short_fnames, uint8_t hash_char
 		puts(_(3, 13, "Cannot get the NLS tables"));
 		return -1;
 	}
-
-	// Set use of short file names from Windows hosts
-	data->short_fnames = short_fnames;
-
-	// Set number of hash generated characters
-	data->hash_chars = hash_chars < MIN_HASH_CHARS ? MIN_HASH_CHARS : hash_chars > MAX_HASH_CHARS ? MAX_HASH_CHARS : hash_chars;
 
 	// Now try to initialize VirtualBox communication
 	err = vbox_init_device(&data->vb);
@@ -646,23 +713,25 @@ static int driver_not_found(void)
 
 static void print_help(void)
 {
-	puts(_(0, 0, "\n"
-	                        "Usage: "));
-	puts(_(0, 1,   "    VBSF <ACTION> <ARGS..>\n"));
-	puts(_(0, 2,   "Supported actions:"));
-	puts(_(0, 3,   "    install            install the driver (default)"));
-	puts(_(0, 4,   "        low                install in conventional memory (otherwise UMB)"));
-	puts(_(0, 5,   "        short              use short file names from windows hosts"));
-	puts(_(0, 6,   "        hash <n>           number of hash generated chars following the '~'"));
-	puts(_(0, 7,   "                           for generating DOS valid files"));
-	printf(_(0, 8, "                           (%d min, %d max, %d default)\n"),
-	                                                         MIN_HASH_CHARS, MAX_HASH_CHARS, DEF_HASH_CHARS);
-	puts(_(0, 9,   "    uninstall          uninstall the driver from memory"));
-	puts(_(0, 10,  "    list               list available shared folders"));
-	puts(_(0, 11,  "    mount [/cs] <FOLD> <X:>  mount a shared folder into drive X:"));
-	puts(_(0, 14,  "                             use '/cs' if host filesystem is case sensitive"));
-	puts(_(0, 12,  "    umount <X:>        unmount shared folder from drive X:"));
-	puts(_(0, 13,  "    rescan             unmount everything and recreate automounts"));
+	putchar('\n');
+	puts(  _(0, 0,   "Usage: "));
+	puts(  _(0, 1,   "  VBSF <ACTION> <ARGS..> [<OPTIONS..>]"));
+	putchar('\n');
+	puts(  _(0, 2,   "Supported actions and options:"));
+	puts(  _(0, 3,   "  install                 Install the driver (default)."));
+	puts(  _(0, 4,   "    low                     Install in conventional memory (otherwise UMB)."));
+	puts(  _(0, 5,   "  uninstall               Uninstall the driver from memory."));
+	puts(  _(0, 6,   "  list                    List available shared folders."));
+	puts(  _(0, 7,   "  mount <FOLD> <X:> ...   Mount a shared folder into drive X:."));
+	puts(  _(0, 8,   "    /hash <n>               Number of hash chars following the '~'"));
+	puts(  _(0, 9,   "                              for generated DOS short filenames."));
+	printf(_(0, 10,  "                              (between %d and %d; default %d; 0 to disable)\n"),
+	                                               MIN_HASH_CHARS, MAX_HASH_CHARS, DEF_HASH_CHARS);
+	puts(  _(0, 11,  "    /host                   Use short file names from Windows hosts."));
+	puts(  _(0, 12,  "    /upper                  Require uppercase host filenames."));
+	puts(  _(0, 13,  "  remount <X:> ...        Change mount options for mounted drive X:."));
+	puts(  _(0, 14,  "  umount <X:>             Unmount shared folder from drive X:."));
+	puts(  _(0, 15,  "  rescan                  Unmount everything and recreate automounts."));
 }
 
 static int invalid_arg(const char *s)
@@ -701,6 +770,45 @@ static bool is_false(const char *s)
 	       || stricmp(s, "0") == 0;
 }
 
+static int parse_mountopts(MOUNTOPTS *opts, int *argi, int argc, const char *argv[])
+{
+	int i = *argi;
+	while (argv[i][0] == '/' && i < argc) {
+		if (stricmp(argv[i], "/hash") == 0) {
+			i++;
+			if (i >= argc) return arg_required("/hash");
+
+			if (is_false(argv[i])) {
+				opts->generate_sfn = false;
+			} else if (strlen(argv[i]) == 1 && isdigit(argv[i][0])) {
+				int hash_chars = argv[i][0] - '0';
+				if (hash_chars < MIN_HASH_CHARS || hash_chars > MAX_HASH_CHARS) {
+					return invalid_arg(argv[i]);
+				}
+				opts->generate_sfn = true;
+				opts->hash_chars = hash_chars;
+			} else {
+				return invalid_arg(argv[i]);
+			}
+		} else if (stricmp(argv[i], "/nohash") == 0) {
+			opts->generate_sfn = false;
+		} else if (stricmp(argv[i], "/host") == 0) {
+			opts->use_host_sfn = true;
+		} else if (stricmp(argv[i], "/nohost") == 0) {
+			opts->use_host_sfn = false;
+		} else if (stricmp(argv[i], "/upper") == 0) {
+			opts->require_uppercase = true;
+		} else if (stricmp(argv[i], "/noupper") == 0) {
+			opts->require_uppercase = false;
+		} else {
+			return invalid_arg(argv[i]);
+		}
+		i++;
+	}
+	*argi = i;
+	return EXIT_SUCCESS;
+}
+
 int main(int argc, const char *argv[])
 {
 	LPTSRDATA data = get_tsr_data(true);
@@ -712,7 +820,6 @@ int main(int argc, const char *argv[])
 	if (argi >= argc || stricmp(argv[argi], "install") == 0) {
 		uint8_t hash_chars = DEF_HASH_CHARS;
 		bool high = true;
-		bool short_fnames = false;
 
 		argi++;
 		for (; argi < argc; argi++) {
@@ -720,15 +827,6 @@ int main(int argc, const char *argv[])
 				high = false;
 			} else if (stricmp(argv[argi], "high") == 0) {
 				high = true;
-			} else if (stricmp(argv[argi], "short") == 0) {
-				short_fnames = true;
-			} else if (stricmp(argv[argi], "hash") == 0) {
-				if (argc > argi && strlen(argv[argi+1]) == 1 && isdigit(argv[argi+1][0])) {
-					hash_chars = argv[++argi][0] - '0';
-				} 
-				else {
-					return arg_required(argv[argi]);
-				}
 			} else {
 				return invalid_arg(argv[argi]);
 			}
@@ -749,7 +847,7 @@ int main(int argc, const char *argv[])
 		} else {
 			deallocate_environment(_psp);
 		}
-		err = configure_driver(data, short_fnames, hash_chars);
+		err = configure_driver(data);
 		if (err) {
 			if (high) cancel_reallocation(FP_SEG(data));
 			return EXIT_FAILURE;
@@ -773,26 +871,26 @@ int main(int argc, const char *argv[])
 		if (!data) return driver_not_found();
 		return list_folders(data);
 	} else if (stricmp(argv[argi], "mount") == 0) {
+		MOUNTOPTS opts;
 		char *folder;
 		char drive;
-		bool ci = true;
 		if (!data) return driver_not_found();
 
 		argi++;
 		if (argi >= argc) return arg_required("mount");
-		if (stricmp(argv[argi], "/cs") == 0) {
-			ci = false;
-			argi++;
-			if (argi >= argc) return arg_required("mount");
-		}
+
 		folder = (char *) argv[argi];
 		argi++;
 		if (argi >= argc) return arg_required("mount");
 		drive = get_drive_letter(argv[argi]);
 		if (!drive) return invalid_arg(argv[argi]);
 
+		set_mountopts_defaults(&opts);
+		err = parse_mountopts(&opts, &argi, argc, argv);
+		if (err) return err;
+
 		local_to_utf8(data, utf8name.buf, folder, utf8name.shflstr.u16Size);
-		return mount(data, utf8name.buf, drive, ci);
+		return mount(data, utf8name.buf, drive, &opts);
 	} else if (stricmp(argv[argi], "umount") == 0 || stricmp(argv[argi], "unmount") == 0) {
 		char drive;
 		if (!data) return driver_not_found();
@@ -803,6 +901,24 @@ int main(int argc, const char *argv[])
 		if (!drive) return invalid_arg(argv[argi]);
 
 		return unmount(data, drive);
+	} else if (stricmp(argv[argi], "remount") == 0) {
+		MOUNTOPTS opts;
+		char drive;
+		if (!data) return driver_not_found();
+
+		argi++;
+		if (argi >= argc) return arg_required("remount");
+		drive = get_drive_letter(argv[argi]);
+		if (!drive) return invalid_arg(argv[argi]);
+
+		err = get_mountopts(data, drive, &opts);
+		if (err) return err;
+
+		argi++;
+		err = parse_mountopts(&opts, &argi, argc, argv);
+		if (err) return err;
+
+		return set_mountopts(data, drive, &opts);
 	} else if (stricmp(argv[argi], "rescan") == 0) {
 		if (!data) return driver_not_found();
 		return rescan(data);

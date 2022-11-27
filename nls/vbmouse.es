@@ -6,18 +6,18 @@
 # Spaces before text must be kept. Be sure that no spaces are
 # added to the end of the lines.
 #
-0.0:\nUso:
-0.1:    VBMOUSE <ACCIàN> <ARGS..>\n
-0.2:Acciones soportadas:
-0.3:    install            instala el controlador (por defecto)
-0.4:        low                instala en memoria convencional (UMB si no)
-0.5:    uninstall          desinstala el controlador de la memoria
-0.6:    wheel <ON|OFF>     habilita/deshabilita soporte para la rueda
-0.7:    wheelkey <KEY|OFF> emula una tecla espec¡fica para el scroll por rueda
-0.8:                          valores soportados para KEY: updn, pageupdn
-0.9:    integ <ON|OFF>     habilita/deshabilita integraci¢n con virtualbox
-0.10:    hostcur <ON|OFF>   habilita/deshabilita pintado del cursor en el anfitri¢n
-0.11:    reset              reinicia ajustes del controlador del rat¢n
+0.0:Uso:
+0.1:  VBMOUSE <ACCIàN> <ARGS..>
+0.2:Acciones y opciones soportadas:
+0.3:  install                 Instala el controlador (por defecto).
+0.4:    low                     Instala en memoria convencional (UMB si no).
+0.5:  uninstall               Desinstala el controlador de la memoria.
+0.6:  wheel <ON|OFF>          Habilita/deshabilita el soporte para la rueda.
+0.7:  wheelkey <TECLA|OFF>    Emula una tecla espec¡fica al rotar la rueda.
+0.8:                            Teclas soportadas: updn, pageupdn.
+0.9:  integ <ON|OFF>          Habilita/deshabilita integraci¢n con VirtualBox.
+0.10:  hostcur <ON|OFF>        Habilita/deshabilita cursor dibujado por anfitri¢n.
+0.11:  reset                   Reinicia el controlador del rat¢n.
 1.0:Rueda de rat¢n encontrada y activada\n
 1.1:Soporte para rueda %s\n
 1.2:habilitado

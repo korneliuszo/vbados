@@ -27,12 +27,6 @@
 
 #define REVERSE_HASH 1
 
-#define DEF_HASH_CHARS 3
-#define MIN_HASH_CHARS 2
-#define MAX_HASH_CHARS 6
-
-#ifdef IN_TSR
-
 static inline bool translate_filename_from_host(SHFLSTRING *, bool, bool);
 static bool matches_8_3_wildcard(const char __far *, const char __far *);
 static int my_strrchr(const char __far *, char);
@@ -64,6 +58,7 @@ static inline char __far *_fstrrchr_local(const char __far *str, char c)
 	return (char __far *)&str[i];
 }
 
+/** Like strcpy, but returns a pointer to the new last char in dst (a NULL). */
 static inline char *_fstrcpy_local(char *dst, const char __far *src)
 {
 	while (*dst++ = *src++)
@@ -86,17 +81,17 @@ static inline char hex_digit(uint8_t val)
  *       included in gawk, which uses bit rotations instead of
  *       multiplications)
  */
-// Claculates and returns hash_len bits length hash
-//
 #define FOLD_MASK(x) (((uint32_t)1 << (x)) - 1)
-uint32_t lfn_name_hash(
-	uint8_t *name, // in : File name in UTF-8
-	uint16_t len   // in : File name length
+/** Calculates and returns hash_len bits length hash */
+static uint32_t lfn_name_hash(
+	uint8_t *name,     // in : File name in UTF-8
+	uint16_t len,      // in : File name length
+    uint8_t hash_chars // in: Number of characters for hash part
 )
 {
 	uint8_t *be = name + len; /* beyond end of buffer */
 	uint32_t hval = 0;
-	uint8_t hash_len = data.hash_chars << 2;
+	uint8_t hash_len = hash_chars << 2;
 
 	while (name < be)
 	{
@@ -120,15 +115,16 @@ uint32_t lfn_name_hash(
 // Generates a valid (and hopefully unique) 8.3 DOS path from an LFN
 // This function assumes that fname is already in DOS character set
 //
-void mangle_to_8_3_filename(
-	uint32_t hash,		  // in : Pre-calculated hash of the filename in UTF-8
+static void mangle_to_8_3_filename(
+	uint32_t hash,        // in : Pre-calculated hash of the filename in UTF-8
+	uint8_t hash_chars,   // in: Number of characters for hash part
 	char __far *fcb_name, // out : File name in FCB format. Must be 11 bytes long
-	SHFLSTRING *str		  // in : File name in DOS codepage
+	SHFLSTRING *str       // in : File name in DOS codepage
 )
 {
 	char *d, *p, __far *s, *fname = str->ach;
 	int i;
-	uint8_t mangle = data.hash_chars;
+	uint8_t mangle = hash_chars;
 	static int ror[] = {0, 4, 8, 12, 16, 20};
 
 	*(uint32_t __far *)(&fcb_name[0]) = 0x20202020;
@@ -256,8 +252,8 @@ static inline bool match_to_8_3_filename(const char __far *dos_filename, const c
 }
 
 static inline char *find_real_name(
-	SHFLROOT root,
 	TSRDATAPTR data,
+	int drive,
 	char *dest,			  // out : destination buffer
 	char __far *path,	  // in : search path
 	char __far *filename, // in : DOS file name
@@ -265,6 +261,8 @@ static inline char *find_real_name(
 	uint16_t bufsiz		  // in : buffer size
 )
 {
+	SHFLROOT root = data->drives[drive].root;
+	uint8_t hash_chars = data->drives[drive].opt.hash_chars;
 	vboxerr err;
 
 	dprintf("find_real_name path=%Fs filename=%Fs\n", path, filename);
@@ -314,7 +312,7 @@ static inline char *find_real_name(
 		}
 
 		// Calculate hash using host file name
-		hash = lfn_name_hash(shfldirinfo.dirinfo.name.ach, shfldirinfo.dirinfo.name.u16Length);
+		hash = lfn_name_hash(shfldirinfo.dirinfo.name.ach, shfldirinfo.dirinfo.name.u16Length, hash_chars);
 
 		// Copy now, because translate_filename_from_host() converts fName to DOS codepage
 		//
@@ -326,7 +324,7 @@ static inline char *find_real_name(
 		d = _fstrcpy_local(dest, &shfldirinfo.dirinfo.name.ach);
 
 		translate_filename_from_host(&shfldirinfo.dirinfo.name, false, true);
-		mangle_to_8_3_filename(hash, fcb_name, &shfldirinfo.dirinfo.name);
+		mangle_to_8_3_filename(hash, hash_chars, fcb_name, &shfldirinfo.dirinfo.name);
 
 		if (match_to_8_3_filename(filename, fcb_name))
 		{
@@ -346,13 +344,13 @@ not_found:
 	}
 }
 
-static uint16_t get_true_host_name_n(SHFLROOT root, TSRDATAPTR data, uint8_t *dst, char __far *src, uint16_t buflen, uint16_t count)
+static uint16_t get_true_host_name_n(TSRDATAPTR data, int drive, uint8_t *dst, char __far *src, uint16_t buflen, uint16_t count)
 {
 	char __far *s, *d;
 	char __far *tl, __far *ps, __far *ns, save_ns, save_end;
 	uint16_t ret, len = 0;
 
-	if (data->short_fnames)
+	if (!data->drives[drive].opt.generate_sfn)
 	{
 		return local_to_utf8_n(data, dst, src, buflen, count);
 	}
@@ -402,7 +400,7 @@ static uint16_t get_true_host_name_n(SHFLROOT root, TSRDATAPTR data, uint8_t *ds
 		*d = '\0';
 		++len;
 
-		d = find_real_name(root, data, d, dst, ps + 1, (uint16_t)(ns - ps + 1), buflen - len);
+		d = find_real_name(data, drive, d, dst, ps + 1, (uint16_t)(ns - ps + 1), buflen - len);
 
 		if (d == (char *)0)
 		{
@@ -433,10 +431,9 @@ return_name:
 	return len;
 }
 
-static inline uint16_t get_true_host_name(SHFLROOT root, TSRDATAPTR data, uint8_t *dst, char __far *src, uint16_t buflen)
+static inline uint16_t get_true_host_name(TSRDATAPTR data, int drive, uint8_t *dst, char __far *src, uint16_t buflen)
 {
-	return get_true_host_name_n(root, data, dst, src, buflen, buflen);
+	return get_true_host_name_n(data, drive, dst, src, buflen, buflen);
 }
 
-#endif // IN_TSR
 #endif // LFN_H

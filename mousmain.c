@@ -33,7 +33,7 @@
 #include "dostsr.h"
 #include "mousetsr.h"
 
-nl_catd cat;
+static nl_catd cat;
 
 #if USE_WHEEL
 static void detect_wheel(LPTSRDATA data)
@@ -389,23 +389,24 @@ static int driver_not_found(void)
 
 static void print_help(void)
 {
-	puts(_(0, 0,  "\n"
-	                       "Usage: "));
-	puts(_(0, 1,  "    VBMOUSE <ACTION> <ARGS..>\n"));
-	puts(_(0, 2,  "Supported actions:"));
-	puts(_(0, 3,  "    install            install the driver (default)"));
-	puts(_(0, 4,  "        low                install in conventional memory (otherwise UMB)"));
-	puts(_(0, 5,  "    uninstall          uninstall the driver from memory"));
+	putchar('\n');
+	puts(_(0, 0,  "Usage: "));
+	puts(_(0, 1,  "  VBMOUSE <ACTION> <ARGS..>"));
+	putchar('\n');
+	puts(_(0, 2,  "Supported actions and options:"));
+	puts(_(0, 3,  "  install                 Install the driver (default)."));
+	puts(_(0, 4,  "    low                     Install in conventional memory (otherwise UMB)."));
+	puts(_(0, 5,  "  uninstall               Uninstall the driver from memory."));
 #if USE_WHEEL
-	puts(_(0, 6,  "    wheel <ON|OFF>     enable/disable wheel API support"));
-	puts(_(0, 7,  "    wheelkey <KEY|OFF> emulate a specific keystroke on wheel scroll"));
-	puts(_(0, 8,  "                          supported keys: updn, pageupdn"));
+	puts(_(0, 6,  "  wheel <ON|OFF>          Enable/disable wheel API support."));
+	puts(_(0, 7,  "  wheelkey <KEY|OFF>      Emulate a specific keystroke on wheel scroll."));
+	puts(_(0, 8,  "                            Supported keys: updn, pageupdn."));
 #endif
 #if USE_INTEGRATION
-	puts(_(0, 9,  "    integ <ON|OFF>     enable/disable virtualbox integration"));
-	puts(_(0, 10, "    hostcur <ON|OFF>   enable/disable mouse cursor rendering in host"));
+	puts(_(0, 9,  "  integ <ON|OFF>          Enable/disable VirtualBox integration."));
+	puts(_(0, 10, "  hostcur <ON|OFF>        Enable/disable mouse cursor rendering in the host."));
 #endif
-	puts(_(0, 11, "    reset              reset mouse driver settings"));
+	puts(_(0, 11, "  reset                   Reset mouse driver."));
 }
 
 static int invalid_arg(const char *s)
@@ -451,7 +452,7 @@ int main(int argc, const char *argv[])
 
 	cat = kittenopen("vbmouse");
 
-	printf(_(1, 20, "\nVBMouse %x.%x (like MSMOUSE %x.%x)\n"), VERSION_MAJOR, VERSION_MINOR, REPORTED_VERSION_MAJOR, REPORTED_VERSION_MINOR);
+	printf(_(1, 20, "\nVBMouse %x.%x (reporting as MSMOUSE %x.%x)\n"), VERSION_MAJOR, VERSION_MINOR, REPORTED_VERSION_MAJOR, REPORTED_VERSION_MINOR);
 
 	if (argi >= argc || stricmp(argv[argi], "install") == 0) {
 		bool high = true;

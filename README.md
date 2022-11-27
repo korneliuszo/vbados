@@ -3,11 +3,14 @@ VBADOS is a set of Terminate-and-Stay-Resident (TSR) utilities to be used
 inside MS-DOS virtual machines (and Windows 3.x), and help to provide
 closer integration between the guest and the host.
 
-There are two utilities right now:
+There are three utilities right now:
 
 * VBMOUSE.EXE is a DOS mouse driver for VirtualBox/VMware emulated mouse,
   but also real PS/2 mice. It allows for seamless host/guest mouse integration,
   and scroll wheel support.
+    * VBMOUSE.DRV is a Windows 3.x mouse driver that depends on VBMOUSE.EXE
+      (or alternatively the builtin mouse support in DOSemu/DOSBox)
+      to provide the same seamless mouse integration and wheel support within Windows.
 
 * VBSF.EXE is a Shared Folders driver for VirtualBox (not VMware yet). It allows
   to map directories from the host OS into drive letters in the MS-DOS guest.
@@ -18,11 +21,11 @@ The VB stands for "Very Basic" :)
 
 # Downloads
 
-The current release is _0.6_.
+The current release is _0.61_.
 You can get a recent build from the ready-to-go floppy disk image:
 
 [💾 VBADOS.FLP](https://depot.javispedro.com/vbox/vbados/vbados.flp)
-(contains VBMOUSE.EXE, VBSF.EXE, VBMOUSE.DRV)
+(contains VBMOUSE.EXE, VBMOUSE.DRV, VBSF.EXE)
 
 Alternatively, here is a .zip containing all binaries:
 
@@ -37,6 +40,10 @@ For the source code, you can check out [this git repository](..).
 
 ## Version history
 
+* _0.61_: Localization support using [Kitten](http://wiki.freedos.org/wiki/index.php/Kitten); currently only Spanish is available (`set lang=es`).
+  Non-fully-uppercase but still 8.3 filenames are no longer "shortened" by default.
+  Introduced per-mount options.
+  Improved wheel compatibility under Windows 3.x; Word is now compatible with wheel scrolling.
 * _0.6_: Big VBSF revamp, thanks to Eduardo Casino. VBSF now supports long file
   names in shared folders, as well as translating host Unicode filenames into the
   corresponding characters from the current DOS codepage.
@@ -53,10 +60,10 @@ wheel mouse compatibility.
 ## Acknowledgments
 
 * Thanks to Eduardo Casino ([VMSMOUNT project](https://vmsmount.sourceforge.io/), for his contributions regarding 
-internalization and long file name support.
+internalization, Unicode and long file name support.
 
 * NattyNarwhal ([vmwmouse](https://github.com/NattyNarwhal/vmwmouse))
-  and stsp ([dosemu2](https://github.com/dosemu2/dosemu2)) for ideas and feedback regarding the Windows 3.x driver. 
+  and stsp ([dosemu2](https://github.com/dosemu2/dosemu2)) for ideas and feedback regarding the Windows 3.x mouse driver.
 
 ## VBMOUSE.EXE - DOS mouse driver
 
@@ -165,12 +172,24 @@ Run `vbmouse <action>` for specific configuration. Here are the supported action
    This does not include any of the above settings, but rather the traditional int33 mouse settings (like sensitivity)
    that may be altered by other programs. It is equivalent to int33/ax=0.
 
-### Windows 3.x driver
+### VBMOUSE.DRV - Windows 3.x driver
 
-A very simple Windows 3.x mouse driver (called _VBMOUSE.DRV_) is also included,
-which _requires VBMOUSE.EXE to be loaded before starting Windows_ ,
-and uses its functionality to provide similar host/guest mouse integration
-inside Windows 3.x itself (i.e. not just DOS boxes).
+A Windows 3.x mouse driver (called _VBMOUSE.DRV_) is also included
+which provides similar host/guest mouse integration inside Windows 3.x itself
+(i.e. not just DOS boxes).
+However, it _requires a DOS mouse driver_,
+which means you need to load VBMOUSE.EXE from DOS _before starting Windows_.
+
+As an alternative to VBMOUSE.EXE, VBMOUSE.DRV
+can also work with the builtin DOS mouse drivers inside DOSemu or DOSBox.
+This gives mouse integration inside Windows without the need to install a
+separate DOS mouse driver.
+However, the builtin mouse driver needs to support my
+[absolute int33 API extension bit](https://git.javispedro.com/cgit/vbados.git/about/#absolute-mouse-api).
+This is currently natively supported by
+[dosemu2](https://dosemu2.github.io/dosemu2/),
+[DOSBox-X](https://dosbox-x.com/) and
+[DOSBox Staging](https://dosbox-staging.github.io/).
 
 To install this driver, and assuming you have for example already inserted
 the VBADOS.flp floppy (or copied the files in some other way), 
@@ -193,12 +212,6 @@ VBMOUSE.EXE as DOS mouse driver, you may be interested in
 "standalone" Windows 3.x mouse drivers. 
 E.g, for either [VirtualBox](https://git.javispedro.com/cgit/vbmouse.git/)
 or [VMware](https://github.com/NattyNarwhal/vmwmouse).
-
-You can also use VBMOUSE.DRV with any other int33 mouse driver, however
-to use absolute positioning (e.g. under DOSBox-X or DOSemu), the int33
-driver needs to support my [absolute int33 API extension bit](https://git.javispedro.com/cgit/vbados.git/about/#absolute-mouse-api).
-Otherwise the driver will only pass relative coordinates (i.e. without
-SF_ABSOLUTE bit).
 
 ## VBSF.EXE - Shared folders
 
@@ -242,25 +255,38 @@ The driver will automatically mount all the directories marked as "Automount".
 The driver supports the following actions, too:
 
 * `install` installs the driver (i.e. the same as if you run `vbsf`).
-  This command has several suboptions (multiple may be combined):
-    * `low` can be used to force installation in conventional memory;
-       by default, it tries to use a DOS UMB block.
-    
-    * `short` uses short filenames directly from the host OS, without any 
-      translations.  
-      This is only useful in host OSes that support storing short
-      filenames separately, like Windows hosts, and usually only if you expect
-      to use the same filesystem with a different OS later on.
-      
-    * `hash <n>` changes the number of digits reserved for the hash portion
-      of a short filename to `n`.
+  `vbsf install low` can be used to force installation in conventional memory;
+by default, it tries to use a DOS UMB block.
 
 * `uninstall` uninstalls the driver.
 
 * `list` shows currently mounted drives as well as all available shared folders.
 
-* `mount FOLDER X:` can be used to mount a non-automatic shared folder at a specific drive,
-  or to mount a specific shared folder on multiple drives.
+* `mount FOLDER X: [<OPTIONS...>]` can be used to mount a non-automatic shared folder at a specific drive,
+  or to mount a specific shared folder on multiple drives.  
+  This command supports the following mount options:
+    * `/hash <n>` enables the automatic generation of short/hashed DOS filenames
+      for long filenames from the host, and uses `n` as the number of digits reserved
+      for the hash portion of short filenames.  
+      By default, generation of short filenames is enabled using 3 digits for the hash,
+      so long filenames will look like `LONG~20B.TXT` in DOS.
+      Use `/nohash` to disable, in which case long filenames from the host will
+      not appear in DOS.
+    * `/upper` will also generate short/hashed filenames for any file in host
+      whose filename has any lowercase character.  
+      This may be useful for host OSes with case sensitive filesystems,
+      where there are two or more files with filenames that differ only in case.
+      Without this option, the two files cannot be distinguished and may be
+      accidentally overwritten by DOS.
+    * `/host` uses short filenames directly from the host OS, without any
+      translations.  
+      This is only useful in host OSes that support storing short
+      filenames separately, like Windows hosts, and usually only if you expect
+      to use the same filesystem with a different OS later on.
+
+* `remount X: [<OPTIONS...>]` changes the options of a currently mounted drive. 
+  See the `mount` command for details on options. Any option set previously
+  can be disabled with a corresponding `/noopt`, e.g., `/noshort`.
 
 * `unmount X:` unmounts a specific drive.
 
@@ -284,10 +310,10 @@ The use of hashes allow the short file names to be consistent between reboots
 of the guest OS, even if the host OS does not have support to store long these
 short file names. If your host OS does have support for storing persistent
 short file names and want to use those instead of the autogenerated ones,
-consider using the option `short` when installing VBSF.
+consider using the option `/host` when mounting a shared folder.
 If you have a directory with lots of similarly names files, it may help to reduce
 the chances of a hash collision by increase the number of letters dedicated to the
-hash portion of the short file names. For that, use the `hash <n>` option.
+hash portion of the short file names. For that, use the `/hash <n>` option.
 
 In addition, there is support for translation of extended characters from
 the host filesystem into the guest DOS' codepage. 
@@ -304,7 +330,7 @@ For example, if your local timezone is 8 hours earlier than UTC (e.g. PST), run
 # Building the source
 
 This requires [OpenWatcom 2.0](http://open-watcom.github.io/) to build,
-and I have only tried with the latest (March 2022) snapshot, 
+and I have only tried with the latest (November 2022) snapshot,
 albeit it may likely work with older versions, starting from 1.9.
 
 I have tested building it on a Linux host as well as building on MS-DOS itself

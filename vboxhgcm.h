@@ -25,12 +25,13 @@
 
 typedef uint32_t hgcm_client_id_t;
 
+/** Busy-waits until the request is marked as complete by VirtualBox. */
 static void vbox_hgcm_wait(VMMDevHGCMRequestHeader __far * req)
 {
 	volatile uint32_t __far * req_flags = &req->fu32Flags;
 
 	while (!(*req_flags & VBOX_HGCM_REQ_DONE)) {
-		// TODO yield somehow?
+		// TODO yield guest CPU somehow?
 	}
 }
 
