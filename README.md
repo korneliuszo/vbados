@@ -59,7 +59,7 @@ wheel mouse compatibility.
 
 ## Acknowledgments
 
-* Thanks to Eduardo Casino ([VMSMOUNT project](https://vmsmount.sourceforge.io/), for his contributions regarding 
+* Thanks to Eduardo Casino ([VMSMOUNT project](https://vmsmount.sourceforge.io/)), for his contributions regarding
 internalization, Unicode and long file name support.
 
 * NattyNarwhal ([vmwmouse](https://github.com/NattyNarwhal/vmwmouse))
