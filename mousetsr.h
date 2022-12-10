@@ -204,6 +204,11 @@ typedef struct tsrdata {
 	bool w386cursor : 1;
 #endif
 
+#if USE_VMWARE
+	/** VMware is available. */
+	bool vmwavail : 1;
+#endif
+
 #if USE_VIRTUALBOX
 	/** VirtualBox is available. */
 	bool vbavail : 1;
@@ -213,11 +218,6 @@ typedef struct tsrdata {
 	bool vbhaveabs : 1;
 	struct vboxcomm vb;
 	char vbbuf[VBOX_BUFFER_SIZE];
-#endif
-
-#if USE_VMWARE
-	/** VMware is available. */
-	bool vmwavail;
 #endif
 } TSRDATA;
 

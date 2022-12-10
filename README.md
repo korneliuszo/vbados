@@ -21,7 +21,7 @@ The VB stands for "Very Basic" :)
 
 # Downloads
 
-The current release is _0.63_.
+The current release is _0.64_.
 You can get a recent build from the ready-to-go floppy disk image:
 
 [💾 VBADOS.FLP](https://depot.javispedro.com/vbox/vbados/vbados.flp)
@@ -40,6 +40,8 @@ For the source code, you can check out [this git repository](..).
 
 ## Version history
 
+* _0.64_: Reduce memory requirements of int33h driver status save/restore APIs.
+  This helps compatibility with Borland IDEs, which seem to allocate around 1K max.
 * _0.63_: Localization support using [Kitten](http://wiki.freedos.org/wiki/index.php/Kitten); currently only Spanish is available (`set lang=es`).
   Non-fully-uppercase but still 8.3 filenames are no longer "shortened" by default.
   Introduced per-mount options.

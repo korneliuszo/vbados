@@ -1057,6 +1057,7 @@ static void reset_mouse_state()
 	memset(data.cursor_prev_graphic, 0, sizeof(data.cursor_prev_graphic));
 }
 
+/** Return (in the appropiate registers) the wheel movement counter and afterwards reset it. */
 static void return_clear_wheel_counter(union INTPACK __far *r)
 {
 	r->w.cx = snap_to_grid(data.wheel_last.x, data.screen_granularity.x);
@@ -1065,12 +1066,27 @@ static void return_clear_wheel_counter(union INTPACK __far *r)
 	data.wheel_delta = 0;
 }
 
+/** Return (in the appropiate registers) the desired button press counter and afterwards reset it. */
 static void return_clear_button_counter(union INTPACK __far *r, struct buttoncounter *c)
 {
 	r->w.cx = snap_to_grid(c->last.x, data.screen_granularity.x);
 	r->w.dx = snap_to_grid(c->last.y, data.screen_granularity.y);
 	r->w.bx = c->count;
 	c->count = 0;
+}
+
+/** Get the size of the initial part of TSRDATA that should be saved/restored
+ *  by programs who want to preserve the mouse driver status. */
+static unsigned int get_mouse_status_size()
+{
+#if USE_VIRTUALBOX
+	// Programs don't have to preserve the contents of the VirtualBox buffer.
+	// It only needs to be preserved if we are going to be preempted in the middle
+	// of a VirtualBox call, and that may only happen under Windows 386.
+	return sizeof(data) - VBOX_BUFFER_SIZE;
+#else
+	return sizeof(data);
+#endif
 }
 
 /** Entry point for our int33 API. */
@@ -1232,16 +1248,21 @@ static void int33_handler(union INTPACK r)
 	    }
 		break;
 	case INT33_GET_MOUSE_STATUS_SIZE:
-		dputs("Mouse get status size");
-		r.w.bx = sizeof(TSRDATA);
+		dprintf("Mouse get status size required=%u\n", get_mouse_status_size());
+		r.w.bx = get_mouse_status_size();
 		break;
 	case INT33_SAVE_MOUSE_STATUS:
-		dputs("Mouse save status");
-		_fmemcpy(MK_FP(r.w.es, r.w.dx), &data, sizeof(TSRDATA));
+		dprintf("Mouse save status size=%u/required=%u\n", r.w.bx, get_mouse_status_size());
+		hide_cursor();
+		_fmemcpy(MK_FP(r.w.es, r.w.dx), &data, get_mouse_status_size());
+		refresh_cursor();
 		break;
 	case INT33_LOAD_MOUSE_STATUS:
-		dputs("Mouse load status");
-		_fmemcpy(&data, MK_FP(r.w.es, r.w.dx), sizeof(TSRDATA));
+		dprintf("Mouse load status size=%u/required=%u\n", r.w.bx, get_mouse_status_size());
+		_fmemcpy(&data, MK_FP(r.w.es, r.w.dx), get_mouse_status_size());
+		refresh_video_info();
+		load_cursor();
+		refresh_cursor();
 		break;
 	case INT33_SET_MOUSE_SENSITIVITY:
 		dprintf("Mouse set sensitivity x=%d y=%d threshold=%d\n",
