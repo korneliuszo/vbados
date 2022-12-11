@@ -28,18 +28,20 @@
 
 // User customizable defines
 
-/** Enable the VirtualBox integration */
+/** Enable VirtualBox integration. */
 #define USE_VIRTUALBOX 1
-/** Enable the VMware integration */
+/** Enable VMware integration. */
 #define USE_VMWARE 1
-/** Enable the Windows 386/protected mode integration */
+/** Enable Windows 386/protected mode integration .*/
 #define USE_WIN386 1
 /** Enable the wheel. */
 #define USE_WHEEL 1
-/** Trace events verbosily */
+/** Trace mouse events verbosily. */
 #define TRACE_EVENTS 0
+/** Trace (noisy) API calls. */
+#define TRACE_CALLS 1
 
-/** The report MS MOUSE compatible version to programs who ask for it. */
+/** The reported MS MOUSE compatible version to programs who ask for it. */
 #define REPORTED_VERSION_MAJOR 6
 #define REPORTED_VERSION_MINOR 0x30
 
@@ -130,8 +132,8 @@ typedef struct tsrdata {
 	struct point min;
 	/** Current window max coordinates. */
 	struct point max;
-	/** Current cursor visible counter. If >= 0, cursor should be shown. */
-	int16_t visible_count;
+	/** If N > 0, cursor has been hidden N times, and will require N show calls to unhide. */
+	uint8_t hidden_count;
 	/** For text cursor, whether this is a software or hardware cursor. */
 	uint8_t cursor_text_type;
 	/** Masks for the text cursor. */

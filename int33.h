@@ -28,7 +28,8 @@ enum INT33_API {
 	 *  On return, ax = 0xFFFF, bx = number of buttons. */
 	INT33_RESET_MOUSE = 0,
 
-	/** Increment the cursor visible counter. The cursor is shown when the counter is >= 0. */
+	/** Increment the cursor visible counter. The cursor is shown when the counter is >= 0.
+	 *  Note: the internal cursor counter is always <= 0. */
 	INT33_SHOW_CURSOR = 1,
 	/** Decrement the cursor visible counter. The cursor is shown when the counter is >= 0. */
 	INT33_HIDE_CURSOR = 2,

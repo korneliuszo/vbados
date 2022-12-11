@@ -311,7 +311,7 @@ static void show_graphic_cursor(void)
 /** Refreshes cursor position and visibility. */
 static void refresh_cursor(void)
 {
-	bool should_show = data.visible_count >= 0;
+	bool should_show = data.hidden_count == 0;
 	bool pos_changed, needs_refresh;
 
 #if USE_WIN386
@@ -1011,7 +1011,7 @@ static void reset_mouse_settings()
 	data.max.x = data.screen_max.x;
 	data.min.y = 0;
 	data.max.y = data.screen_max.y;
-	data.visible_count = -1;
+	data.hidden_count = 1;
 	data.cursor_text_type = 0;
 	data.cursor_text_and_mask = 0xFFFFU;
 	data.cursor_text_xor_mask = 0x7700U;
@@ -1104,21 +1104,21 @@ static void int33_handler(union INTPACK r)
 		r.w.bx = NUM_BUTTONS;
 		break;
 	case INT33_SHOW_CURSOR:
-#if TRACE_EVENTS
-		dputs("Mouse show cursor");
+		if (data.hidden_count > 0) data.hidden_count--;
+#if TRACE_CALLS
+		dprintf("Mouse show cursor (hidden count=%u)\n", data.hidden_count);
 #endif
-		data.visible_count++;
 		refresh_cursor();
 		break;
 	case INT33_HIDE_CURSOR:
-#if TRACE_EVENTS
-		dputs("Mouse hide cursor");
+		if (data.hidden_count < UINT8_MAX) data.hidden_count++;
+#if TRACE_CALLS
+		dprintf("Mouse hide cursor (hidden count=%u)\n", data.hidden_count);
 #endif
-		data.visible_count--;
 		refresh_cursor();
 		break;
 	case INT33_GET_MOUSE_POSITION:
-#if TRACE_EVENTS
+#if TRACE_CALLS
 		dputs("Mouse get position");
 #endif
 		r.w.cx = snap_to_grid(data.pos.x, data.screen_granularity.x);
@@ -1132,7 +1132,7 @@ static void int33_handler(union INTPACK r)
 #endif
 		break;
 	case INT33_SET_MOUSE_POSITION:
-#if TRACE_EVENTS
+#if TRACE_CALLS
 		dputs("Mouse set position");
 #endif
 		data.pos.x = r.w.cx;
@@ -1146,7 +1146,7 @@ static void int33_handler(union INTPACK r)
 		bound_position_to_window();
 		break;
 	case INT33_GET_BUTTON_PRESSED_COUNTER:
-#if TRACE_EVENTS
+#if TRACE_CALLS
 		dputs("Mouse get button pressed counter");
 #endif
 		r.w.ax = data.buttons;
@@ -1165,7 +1165,7 @@ static void int33_handler(union INTPACK r)
 		    &data.button[MIN(r.w.bx, NUM_BUTTONS - 1)].pressed);
 		break;
 	case INT33_GET_BUTTON_RELEASED_COUNTER:
-#if TRACE_EVENTS
+#if TRACE_CALLS
 		dputs("Mouse get button released counter");
 #endif
 		r.w.ax = data.buttons;
@@ -1215,7 +1215,7 @@ static void int33_handler(union INTPACK r)
 		refresh_cursor();
 		break;
 	case INT33_GET_MOUSE_MOTION:
-#if TRACE_EVENTS
+#if TRACE_CALLS
 		dputs("Mouse get motion");
 #endif
 		r.w.cx = data.delta.x;
