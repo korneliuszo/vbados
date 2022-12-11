@@ -21,7 +21,7 @@ The VB stands for "Very Basic" :)
 
 # Downloads
 
-The current release is _0.64_.
+The current release is _0.65_.
 You can get a recent build from the ready-to-go floppy disk image:
 
 [💾 VBADOS.FLP](https://depot.javispedro.com/vbox/vbados/vbados.flp)
@@ -40,7 +40,9 @@ For the source code, you can check out [this git repository](..).
 
 ## Version history
 
-* _0.64_: Reduce memory requirements of int33h driver status save/restore APIs.
+* _0.65_: Change mouse show/hide cursor APIs to not allow cursor show counter to go above 0,
+  which better matches MS Mouse behavior and improves Borland compatibility.
+* _0.64_: Reduce memory requirements of int33h mouse driver status save/restore APIs.
   This helps compatibility with Borland IDEs, which seem to allocate around 1K max.
 * _0.63_: Localization support using [Kitten](http://wiki.freedos.org/wiki/index.php/Kitten); currently only Spanish is available (`set lang=es`).
   Non-fully-uppercase but still 8.3 filenames are no longer "shortened" by default.
@@ -288,7 +290,7 @@ by default, it tries to use a DOS UMB block.
 
 * `remount X: [<OPTIONS...>]` changes the options of a currently mounted drive. 
   See the `mount` command for details on options. Any option set previously
-  can be disabled with a corresponding `/noopt`, e.g., `/noshort`.
+  can be disabled with a corresponding `/noopt`, e.g., `/nohost`.
 
 * `unmount X:` unmounts a specific drive.
 
