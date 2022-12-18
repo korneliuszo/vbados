@@ -32,6 +32,7 @@ static void vbox_hgcm_wait(VMMDevHGCMRequestHeader __far * req)
 
 	while (!(*req_flags & VBOX_HGCM_REQ_DONE)) {
 		// TODO yield guest CPU somehow?
+		pause();
 	}
 }
 

@@ -33,14 +33,17 @@
 static inline void breakpoint(void);
 #pragma aux breakpoint = 0xcd 0x03;
 
+static inline void pause(void);
+#pragma aux pause = 0xf3 0x90 modify exact [];
+
 static inline __segment get_cs(void);
-#pragma aux get_cs = "mov ax, cs" value [ax] modify exact [];
+#pragma aux get_cs = "mov ax, cs" value [ax] modify exact [] nomemory;
 
 static inline __segment get_ds(void);
-#pragma aux get_ds = "mov ax, ds" value [ax] modify exact [];
+#pragma aux get_ds = "mov ax, ds" value [ax] modify exact [] nomemory;
 
 static inline __segment get_ss(void);
-#pragma aux get_ss = "mov ax, ss" value [ax] modify exact [];
+#pragma aux get_ss = "mov ax, ss" value [ax] modify exact [] nomemory;
 
 /** Converts a far pointer into equivalent linear address.
  *  Note that under protected mode linear != physical (for that, need VDS). */
