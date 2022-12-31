@@ -29,6 +29,9 @@
 
 /** Whether to enable wheel mouse handling. */
 #define USE_WHEEL 1
+/** If win386 is available, hook int2f to detect DOS/Windows screen switches
+ *  and reconfigure the int33 driver. */
+#define USE_WIN386 1
 /** Verbosely log events as they happen. */
 #define TRACE_EVENTS 0
 /** Verbosely trace scroll wheel code. */
@@ -39,6 +42,9 @@
 /** Windows 3.x only supports 1-2 mouse buttons anyway. */
 #define MOUSE_NUM_BUTTONS 2
 
+/** Prefix for debug messages. */
+#define DPREFIX "mousew16: "
+
 /** The routine Windows gave us which we should use to report events. */
 static LPFN_MOUSEEVENT eventproc;
 /** Current status of the driver. */
@@ -48,6 +54,10 @@ static struct {
 #if USE_WHEEL
 	/** Whether a mouse wheel was detected. */
 	bool wheel : 1;
+#endif
+#if USE_WIN386
+	/** Whether we are running under windows 386. */
+	bool has_win386 : 1;
 #endif
 } flags;
 /** Previous deltaX, deltaY from the int33 mouse callback (for relative motion) */
@@ -68,6 +78,10 @@ static struct {
 	BOOL WINAPI (*EnumChildWindows)( HWND, WNDENUMPROC, LPARAM );
 	BOOL WINAPI (*PostMessage)( HWND, UINT, WPARAM, LPARAM );
 } userapi;
+#endif
+#if USE_WIN386
+/** Previous int2f handler. */
+static LPFN prev_int2f_handler;
 #endif
 
 /* This is how events are delivered to Windows */
@@ -98,11 +112,12 @@ static void print_window_name(HWND hWnd)
 {
 	char buffer[32];
 	if (userapi.GetWindowText(hWnd, buffer, sizeof(buffer)) > 0) {
-		dprintf("w16mouse: hWnd=0x%x name=%s\n", hWnd, buffer);
+		dprintf(DPREFIX "hWnd=0x%x name=%s\n", hWnd, buffer);
 	}
 }
 #endif
 
+/** Helper function to traverse a window hierarchy and find a candidate scrollbar. */
 static BOOL CALLBACK __loadds find_scrollbar(HWND hWnd, LPARAM lParam)
 {
 	LPFINDSCROLLBARDATA data = (LPFINDSCROLLBARDATA) lParam;
@@ -135,6 +150,12 @@ static BOOL CALLBACK __loadds find_scrollbar(HWND hWnd, LPARAM lParam)
 	return ENUM_CHILD_WINDOW_CONTINUE;
 }
 
+/** Send scrolling messages to given window.
+ *  @param hWnd window to scroll.
+ *  @param vertical true if vertical, false if horizontal.
+ *  @param z number of lines to scroll.
+ *  @param hScrollBar corresponding scrollbar handle.
+ */
 static void post_scroll_msg(HWND hWnd, BOOL vertical, int z, HWND hScrollBar)
 {
 	UINT msg = vertical ? WM_VSCROLL : WM_HSCROLL;
@@ -152,6 +173,7 @@ static void post_scroll_msg(HWND hWnd, BOOL vertical, int z, HWND hScrollBar)
 	userapi.PostMessage(hWnd, msg, SB_ENDSCROLL, lParam);
 }
 
+/** Send wheel scrolling events to the most likely candidate window. */
 static void send_wheel_movement(int8_t z)
 {
 	POINT point;
@@ -165,12 +187,8 @@ static void send_wheel_movement(int8_t z)
 	// an interrupt handler without causing a re-entrancy issue somewhere.
 	// Likely it would be better to just move all of this into a hook .DLL
 
+	// Find current window below the mosue cursor
 	userapi.GetCursorPos(&point);
-
-#if TRACE_WHEEL
-	dprintf("w16mouse: getcursorpos OK\n");
-#endif
-
 	hWnd = userapi.WindowFromPoint(point);
 
 #if TRACE_WHEEL
@@ -182,18 +200,18 @@ static void send_wheel_movement(int8_t z)
 
 #if TRACE_WHEEL
 		print_window_name(hWnd);
-		dprintf("w16mouse: hWnd=0x%x style=0x%lx\n", hWnd, style);
+		dprintf(DPREFIX "hWnd=0x%x style=0x%lx\n", hWnd, style);
 #endif
 
 		if (style & WS_VSCROLL) {
 #if TRACE_WHEEL
-			dprintf("w16mouse: found WS_VSCROLL\n");
+			dprintf(DPREFIX "found WS_VSCROLL\n");
 #endif
 			post_scroll_msg(hWnd, TRUE, z, 0);
 			break;
 		} else if (style & WS_HSCROLL) {
 #if TRACE_WHEEL
-			dprintf("w16mouse: found WS_HSCROLL\n");
+			dprintf(DPREFIX "found WS_HSCROLL\n");
 #endif
 			post_scroll_msg(hWnd, FALSE, z, 0);
 			break;
@@ -202,7 +220,7 @@ static void send_wheel_movement(int8_t z)
 
 			// Let's check if we can find a vertical scroll bar in this window..
 #if TRACE_WHEEL
-			dprintf("w16mouse: find vertical scrollbar...\n");
+			dprintf(DPREFIX "find vertical scrollbar...\n");
 #endif
 			data.vertical = TRUE;
 			data.scrollbar = 0;
@@ -214,7 +232,7 @@ static void send_wheel_movement(int8_t z)
 
 			// Try a horizontal scrollbar now
 #if TRACE_WHEEL
-			dprintf("w16mouse: find horizontal scrollbar...\n");
+			dprintf(DPREFIX "find horizontal scrollbar...\n");
 #endif
 			data.vertical = FALSE;
 			data.scrollbar = 0;
@@ -227,7 +245,7 @@ static void send_wheel_movement(int8_t z)
 			// Otherwise, try again on the parent window
 			if (style & WS_CHILD) {
 #if TRACE_WHEEL
-				dprintf("w16mouse: go into parent...\n");
+				dprintf(DPREFIX "go into parent...\n");
 #endif
 				hWnd = userapi.GetParent(hWnd);
 			} else {
@@ -238,18 +256,19 @@ static void send_wheel_movement(int8_t z)
 	}
 
 #if TRACE_WHEEL
-	dprintf("w16mouse: wheel end\n");
+	dprintf(DPREFIX "wheel end\n");
 #endif
 }
 #endif /* USE_WHEEL */
 
+/** Called by the int33 mouse driver. */
 static void FAR int33_mouse_callback(uint16_t events, uint16_t buttons, int16_t x, int16_t y, int16_t delta_x, int16_t delta_y)
 #pragma aux (INT33_CB) int33_mouse_callback
 {
 	int status = 0;
 
 #if TRACE_EVENTS
-	dprintf("w16mouse: events=0x%x buttons=0x%x x=%d y=%d dx=%d dy=%d\n",
+	dprintf(DPREFIX "events=0x%x buttons=0x%x x=%d y=%d dx=%d dy=%d\n",
 	        events, buttons, x, y, delta_x, delta_y);
 #endif
 
@@ -300,7 +319,7 @@ static void FAR int33_mouse_callback(uint16_t events, uint16_t buttons, int16_t 
 	}
 
 #if TRACE_EVENTS
-	dprintf("w16mouse: post status=0x%x ", status);
+	dprintf(DPREFIX "post status=0x%x ", status);
 	if (status & SF_ABSOLUTE) {
 		dprintf("x=%u y=%u\n", x, y);
 	} else {
@@ -310,6 +329,93 @@ static void FAR int33_mouse_callback(uint16_t events, uint16_t buttons, int16_t 
 
 	send_event(status, x, y, MOUSE_NUM_BUTTONS, 0, 0);
 }
+
+#if USE_WIN386
+static void display_switch_handler(int function)
+#pragma aux display_switch_handler parm caller [ax] modify [ax bx cx dx si di]
+{
+	if (!flags.enabled) {
+		return;
+	}
+
+	switch (function) {
+	case INT2F_NOTIFY_BACKGROUND_SWITCH:
+		dputs(DPREFIX "windows going background\n");
+
+		break;
+	case INT2F_NOTIFY_FOREGROUND_SWITCH:
+		dputs(DPREFIX "windows going foreground, reconfiguring int33 driver\n");
+
+		// Normally, we wouldn't need to do anything on a foreground switch
+		// since Windows (VMD) would transparently switch to the int33 driver instance
+		// corresponding to the Windows VM.
+		// i.e. the state of the int33 driver should be transparently restored for us.
+		// However, with some display drivers, the BIOS screen mode may not be completely
+		// restored when Windows goes fullscreen, and this may confuse the int33 driver
+		// into forgetting the window size, even if the int33 driver state was restored.
+		// To avoid this, let's re-set the window size each time Windows goes fullscreen.
+
+		// Additionally, the builtin int33 driver of some emulators cannot be instanced
+		// by VMD (because these drivers effectively exist outside the emulated machine),
+		// in which case the int33 driver is going to be "shared" between DOS and Windows,
+		// resulting in loss of mouse function in Windows whenever a DOS VM is focused.
+		// For these cases, let's just steal control from the DOS program when coming
+		// back into Windows (i.e. let's set the event handler to our own).
+		// The DOS program will likely lose mouse functionality at this point, but
+		// at least it's better than Windows losing control of the mouse permanently.
+
+		// Reset the window size...
+		int33_set_mouse_speed(1, 1);
+		int33_set_horizontal_window(0, max_x);
+		int33_set_vertical_window(0, max_y);
+		// and the event handler, but nothing else.
+		int33_set_event_handler(INT33_EVENT_MASK_ALL, int33_mouse_callback);
+
+		break;
+	}
+}
+
+/** Interrupt 2F handler, which will be called on Windows 386 mode events. */
+static void __declspec(naked) __far int2f_handler(void)
+{
+	_asm {
+		; Preserve data segment
+		push ds
+
+		; Load our data segment
+		push SEG prev_int2f_handler ; Let's hope that Windows relocates segments with interrupts disabled
+		pop ds
+
+		; Check functions we are interested in hooking
+		cmp ax, 0x4001  ; Notify Background Switch
+		je handle_it
+		cmp ax, 0x4002  ; Notify Foreground Switch
+		je handle_it
+
+		; Otherwise directly jump to next handler
+		jmp next_handler
+
+	handle_it:
+		pushad ; Save and restore 32-bit registers, we may clobber them from C
+		call display_switch_handler
+		popad
+
+	next_handler:
+		; Store the address of the previous handler
+		push dword ptr [prev_int2f_handler]
+
+		; Restore original data segment without touching the stack,
+		; since we want to keep the prev handler address at the top
+		push bp
+		mov bp, sp
+		mov ds, [bp + 6]  ; Stack looks like 0: bp, 2: prev_int2f_handler, 6: ds
+		pop bp
+
+		retf 2
+	}
+}
+
+#endif /* USE_WIN386 */
 
 #pragma code_seg ()
 
@@ -333,8 +439,15 @@ BOOL FAR PASCAL LibMain(HINSTANCE hInstance, WORD wDataSegment,
 		dos_print_string("Press any key to terminate.$");
 		dos_read_character();
 		// This will cause a "can't load .drv" message from Windows
+		// TODO: This aborts Windows startup, maybe we should still go on
 		return 0;
 	}
+
+#if USE_WIN386
+	if (is_windows_386_enhanced_mode()) {
+		flags.has_win386 = true;
+	}
+#endif
 
 	return 1;
 }
@@ -360,6 +473,16 @@ VOID FAR PASCAL Enable(LPFN_MOUSEEVENT lpEventProc)
 
 	if (!flags.enabled) {
 		int33_reset();
+
+#if USE_WIN386
+		// If we are running under win386, hook int2f now.
+		if (flags.has_win386) {
+			_disable();
+			prev_int2f_handler = _dos_getvect(0x2F);
+			_dos_setvect(0x2F, int2f_handler);
+			_enable();
+		}
+#endif
 
 #if USE_WHEEL
 		// Detect whether the int33 driver has wheel support
@@ -407,7 +530,16 @@ VOID FAR PASCAL Enable(LPFN_MOUSEEVENT lpEventProc)
 VOID FAR PASCAL Disable(VOID)
 {
 	if (flags.enabled) {
+#if USE_WIN386
+		if (flags.has_win386) {
+			// When Windows is shutting down, it's not that important to correctly
+			// preserve the interrupt chain since it will end up being restored.
+			_dos_setvect(0x2F, prev_int2f_handler);
+		}
+#endif
+
 		int33_reset(); // This removes our handler and all other settings
+
 		flags.enabled = false;
 	}
 }

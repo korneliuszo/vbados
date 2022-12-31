@@ -59,8 +59,8 @@ enum vxd_device_ids
 	VMD_DEVICE_ID = 0xC
 };
 
-static bool windows_386_enhanced_mode(void);
-#pragma aux windows_386_enhanced_mode = \
+static bool is_windows_386_enhanced_mode(void);
+#pragma aux is_windows_386_enhanced_mode = \
 	"mov ax, 0x1600" \
 	"int 0x2F" \
 	"test al, 0x7F" /* return value is either 0x80 or 0x00 if win386 is not running */ \
@@ -83,8 +83,7 @@ enum vmd_apis {
 	VMD_SET_MOUSE_TYPE = 0x100,
 };
 
-enum vmd_callouts
-{
+enum vmd_callouts {
 	/** VMD emits this to know if there is a "win386 aware" DOS mouse driver installed.
 	 *  If there is, and the driver responds with CX!=0, VMD will assume
 	 *  the driver is taking care of its own instancing
@@ -96,8 +95,7 @@ enum vmd_callouts
 	VMD_CALLOUT_GET_DOS_MOUSE_API = 0x1
 };
 
-enum vmd_dos_mouse_api_actions
-{
+enum vmd_dos_mouse_api_actions {
 	VMD_ACTION_MOUSE_EVENT = 1,
 	VMD_ACTION_HIDE_CURSOR = 2,
 	VMD_ACTION_SHOW_CURSOR = 3
@@ -128,18 +126,5 @@ static inline bool vmd_set_mouse_type(LPFN *vmd_entry, uint8_t mousetype, int8_t
 	__parm [es di] [bl] [bh] [cl] \
 	__value [al] \
 	__modify [ax]
-
-/* Miscelaneous helpers. */
-
-static inline void hook_int2f(LPFN *prev, LPFN new)
-{
-	*prev = _dos_getvect(0x2F);
-	_dos_setvect(0x2F, new);
-}
-
-static inline void unhook_int2f(LPFN prev)
-{
-	_dos_setvect(0x2F, prev);
-}
 
 #endif

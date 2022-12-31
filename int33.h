@@ -227,6 +227,28 @@ static void int33_set_mouse_speed(int16_t x, int16_t y);
 	__parm [cx] [dx] \
 	__modify [ax]
 
+static uint16_t int33_get_mouse_status_size(void);
+#pragma aux int33_get_mouse_status_size = \
+	"mov bx, 0" \
+	"mov ax, 0x15" \
+	"int 0x33" \
+	__value [bx] \
+	__modify [ax]
+
+static void int33_save_mouse_status(uint16_t size, void __far * buffer);
+#pragma aux int33_save_mouse_status = \
+	"mov ax, 0x16" \
+	"int 0x33" \
+	__parm [bx] [es dx] \
+	__modify [ax]
+
+static void int33_load_mouse_status(uint16_t size, void __far * buffer);
+#pragma aux int33_load_mouse_status = \
+	"mov ax, 0x17" \
+	"int 0x33" \
+	__parm [bx] [es dx] \
+	__modify [ax]
+
 static void int33_set_sensitivity(uint16_t sens_x, uint16_t sens_y, uint16_t double_speed_threshold);
 #pragma aux int33_set_sensitivity = \
 	"mov ax, 0x1A" \
