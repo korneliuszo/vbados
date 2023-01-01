@@ -21,7 +21,7 @@ The VB stands for "Very Basic" :)
 
 # Downloads
 
-The current release is _0.65_.
+The current release is _0.66_.
 You can get a recent build from the ready-to-go floppy disk image:
 
 [💾 VBADOS.FLP](https://depot.javispedro.com/vbox/vbados/vbados.flp)
@@ -40,6 +40,7 @@ For the source code, you can check out [this git repository](..).
 
 ## Version history
 
+* _0.66_: vbmouse.drv only: fixes issue when returning from fullscreen DOS boxes.
 * _0.65_: Change mouse show/hide cursor APIs to not allow cursor show counter to go above 0,
   which better matches MS Mouse behavior and improves Borland compatibility.
 * _0.64_: Reduce memory requirements of int33h mouse driver status save/restore APIs.
