@@ -132,7 +132,7 @@ the following additional features:
 * **Sending scroll keys on wheel movements**,
   i.e. faking wheel scroll support on programs that don't support the CuteMouse API
   by using arrow up/down keys.  
-  [▶️ Mouse wheel scrolling inside MS-DOS Edit under VirtualBox](https://depot.javispedro.com/vbox/vbados/vbm_vmware_edit.webm).  
+  [▶️ Mouse wheel scrolling inside MS-DOS Edit under VirtualBox](https://depot.javispedro.com/vbox/vbados/vbm_wheelkey_edit.webm).
   This is not enabled by default, see `wheelkey` below.
 
 * The current version uses about 10KiB of memory (when logging is disabled),
@@ -618,8 +618,10 @@ this shouldn't be a problem either.
 
 * Investigate how to interact with "long file name" API providers like 9x or DOSLFN,
   so that compatible programs can list and use long file names.
-  
+
+* Provide an out-of-the-box method to use the wheel under protected mode Windows,
+  to replace the current VKD patch method.
+
 * Would it be possible to use a hardware rendered mouse pointer in Windows 3.x,
   without having to replace the video driver?
   This would also help other emulators.
-
