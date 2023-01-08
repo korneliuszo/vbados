@@ -17,13 +17,11 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
  */
 
-#define __STDC_WANT_LIB_EXT1__ 1
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
 #include <dos.h>
-#include <sys/stat.h>
 #include <ctype.h>
 
 #include "kitten.h"
@@ -482,7 +480,6 @@ static void load_unicode_table(uint16_t far *unicode_table)
 	char filename[13];
 	char fullpath[_MAX_PATH];
 	char buffer[256];
-	struct stat filestat;
 	FILE *f;
 	int i, ret;
 
@@ -518,38 +515,40 @@ static void load_unicode_table(uint16_t far *unicode_table)
 	}
 
 	f = fopen(fullpath, "rb");
-
-	if ( NULL == f ) {
+	if (!f) {
 		fprintf(stderr, _(2, 2, "Warning: Can't load Unicode table: %s"), filename);
 		goto error;
 	}
 
-	if ( EOF == fscanf_s(f, "Unicode (%s)", buffer, sizeof(buffer)) ) {
+	// Read "Description of table" (terminated by \r\n)
+	if (!fgets(buffer, sizeof(buffer), f)) {
 		fprintf(stderr, _(2, 3, "Warning: Invalid file format: %s"), filename);
 		goto close;
 	}
 
-	ret = fread(buffer, 1, 3, f);
-
-	if ( ret != 3 || buffer[0] != '\r' || buffer[1] != '\n' || buffer[2] != 1 ) {
+	// Read "Table format designator" (currently only format 1 is supported)
+	ret = fread(buffer, 1, 1, f);
+	if (ret != 1 || buffer[0] != 1) {
 		fprintf(stderr, _(2, 3, "Warning: Invalid file format: %s"), filename);
 		goto close;
 	}
 
-	if ( 256 != (ret = fread( buffer, 1, 256, f )) ) {
+	// Now read the actual table (256 bytes in format 1)
+	if ((ret = fread(buffer, 1, 256, f)) != 256) {
 		fprintf(stderr, _(2, 2, "Warning: Can't load Unicode table: %s"), filename);
 		goto close;
 	}
 
-	_fmemcpy(unicode_table, (char far *)buffer, 256);
+	fclose(f);
+
+	_fmemcpy(unicode_table, buffer, 256);
 
 	return;
 
 close:
 	fclose(f);
 error:
-	fputs(_(2, 4, ". Defaulting to cp437\n"), stderr );
-
+	fputs(_(2, 4, ". Defaulting to cp437\n"), stderr);
 }
 
 static int configure_driver(LPTSRDATA data)
