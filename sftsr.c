@@ -277,11 +277,12 @@ static void fix_wildcards(SHFLSTRING *str, bool expand_tilde)
 			str->u16Length = i + 1;
 		}
 	} else if (str->u16Length >= 1+3) {
-		// If this ends with .???, remove it, since we want to accept files
-		// without extension too.
+		// Also, if this ends with .???, replace it with *,
+		// for the same reason.
 		i = str->u16Length - (1+3);
 		if (memcmp(&str->ach[i], ".???", (1+3)) == 0) {
-			str->u16Length = i;
+			strcpy(&str->ach[i], "*");
+			str->u16Length = i + 1;
 		}
 	}
 
