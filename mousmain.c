@@ -252,7 +252,7 @@ static int configure_driver(LPTSRDATA data)
 	if ((err = ps2m_init(PS2M_PACKET_SIZE_PLAIN))) {
 		fprintf(stderr, _(3, 8, "Cannot init PS/2 mouse BIOS, err=%d\n"), err);
 		// Can't do anything without PS/2
-		return err;
+		//return err;
 	}
 
 #if USE_WHEEL
